@@ -26,17 +26,31 @@ void main() {
     }
   });
 
-  testWidgets('only the shipped role can be entered', (tester) async {
-    await pumpApp(tester);
-    await chooseRole(tester, UserRole.entrepreneur);
-
-    expect(
-      find.text('Seni tanıyalım.'),
-      findsNothing,
-      reason: 'an unshipped role must not open the signup flow',
-    );
-    expect(containerOf(tester).read(profileProvider).role, isNull);
+  test('every audience on the welcome screen has shipped', () {
+    // All four portfolios are live, so there is no dimmed card left to assert
+    // about — the invariant worth holding is the opposite one. If a fifth
+    // audience is ever added unshipped, it belongs outside [UserRole.shipped]
+    // and the welcome screen has to dim it again.
+    expect(UserRole.shipped, hasLength(UserRole.values.length));
   });
+
+  // One test per role rather than a loop inside one: re-pumping the app reuses
+  // the ProviderScope's container, so a second role picked in the same test
+  // would land on the first one's onboarding flow.
+  for (final role in UserRole.values) {
+    testWidgets('${role.label} reaches its own signup', (tester) async {
+      await pumpApp(tester, auth: FakeAuthRepository());
+      await chooseRole(tester, role);
+
+      expect(
+        find.text(
+          role == UserRole.corporate ? 'Kurumunu kaydet.' : 'Seni tanıyalım.',
+        ),
+        findsOneWidget,
+      );
+      expect(containerOf(tester).read(profileProvider).role, role);
+    });
+  }
 
   testWidgets('a visitor is asked for their profile details first', (
     tester,

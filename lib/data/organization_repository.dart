@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/firebase/firebase_boot.dart';
+import '../domain/org_kind.dart';
 import '../domain/organization.dart';
+import '../domain/panel_slot.dart';
 
 /// Raised when a booth was claimed by someone else between the moment it was
 /// offered and the moment it was confirmed.
@@ -100,14 +102,35 @@ class FirestoreOrganizationRepository implements OrganizationRepository {
 
   @override
   Future<void> publish(Organization organization) async {
-    final code = organization.standCode;
-    if (code == null) {
-      throw StateError('Yayına almadan önce bir stand seçilmeli.');
-    }
     if (!firebaseReady) {
       throw const PublishFailure(
         'Firebase bağlantısı kurulamadı. İnternetini kontrol edip tekrar dene.',
       );
+    }
+
+    final code = organization.standCode;
+    if (code == null) {
+      // A startup publishes a card without standing anywhere, so there is no
+      // lock to take and nothing another account could have claimed first —
+      // one plain write, and none of the booth-clash machinery below.
+      if (organization.kind != OrgKind.startup) {
+        throw StateError('Yayına almadan önce bir stand seçilmeli.');
+      }
+      try {
+        await FirebaseFirestore.instance
+            .collection(OrganizationRepository.organizations)
+            .doc(organization.id)
+            .set(organization.toMap(), SetOptions(merge: true));
+      } on FirebaseException catch (error) {
+        throw PublishFailure(
+          error.code == 'permission-denied'
+              ? 'Firestore bu yazmayı reddetti. Güncel güvenlik kurallarının '
+                    'yayında olduğunu ve e-posta adresinin doğrulandığını '
+                    'kontrol et.'
+              : 'Kart yayına alınamadı: ${error.message}',
+        );
+      }
+      return;
     }
 
     final firestore = FirebaseFirestore.instance;
@@ -215,6 +238,25 @@ final organizationsProvider = Provider<List<Organization>>(
   (ref) => ref.watch(organizationsStreamProvider).value ?? const [],
 );
 
+/// Just the exhibiting companies — the ones with booths and stage talks.
+final exhibitorsProvider = Provider<List<Organization>>(
+  (ref) => ref
+      .watch(organizationsProvider)
+      .where((organization) => organization.kind == OrgKind.corporate)
+      .toList(growable: false),
+);
+
+/// Just the startups. Their cards live in the same collection as the
+/// exhibitors' — same shape, same scanner, same meeting hours — so the two are
+/// told apart here rather than in two collections that would double everything
+/// downstream.
+final startupsProvider = Provider<List<Organization>>(
+  (ref) => ref
+      .watch(organizationsProvider)
+      .where((organization) => organization.kind == OrgKind.startup)
+      .toList(growable: false),
+);
+
 /// Exhibitors indexed by the booth they stand on.
 final organizationsByStandProvider = Provider<Map<String, Organization>>((ref) {
   final byStand = <String, Organization>{};
@@ -223,6 +265,35 @@ final organizationsByStandProvider = Provider<Map<String, Organization>>((ref) {
     if (code != null) byStand[code] = organization;
   }
   return byStand;
+});
+
+/// Stage talks already booked, as `day-HH:mm` keys.
+///
+/// Checked against the live list rather than locked in Firestore: two talks at
+/// the same hour is a clash the organiser can resolve, and a talk has to stay
+/// reschedulable — unlike a booth, which is why only booths get a hard lock.
+final takenPanelSlotsProvider = Provider<Set<String>>((ref) {
+  return {
+    for (final organization in ref.watch(organizationsProvider))
+      if (organization.panelDay != null && organization.panelTime != null)
+        '${organization.panelDay}-${organization.panelTime}',
+  };
+});
+
+/// Exhibitors with a stage talk, in schedule order. What the visitor's home
+/// lists under the fair's own programme.
+final panelOrganizationsProvider = Provider<List<Organization>>((ref) {
+  final withTalks = ref
+      .watch(organizationsProvider)
+      .where((organization) => organization.panelLabel != null)
+      .toList();
+  withTalks.sort(
+    (a, b) => PanelSlots.orderOf(
+      a.panelDay,
+      a.panelTime,
+    ).compareTo(PanelSlots.orderOf(b.panelDay, b.panelTime)),
+  );
+  return withTalks;
 });
 
 final organizationByIdProvider = Provider.family<Organization?, String>((

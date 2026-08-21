@@ -38,13 +38,18 @@ class OrgProfileScreen extends ConsumerWidget {
       if (context.mounted) context.go('/');
     }
 
+    final isStartup = organization.kind.isStartup;
+
     Future<void> remove() async {
       final confirmed = await showDeleteAccountDialog(
         context,
-        title: 'Kurumu sil',
-        message:
-            'Bilgilendirme kartın silinir, ${organization.standCode ?? '—'} '
-            'standı boşa çıkar ve hesabın kapatılır. Bu geri alınamaz.',
+        title: isStartup ? 'Girişimi sil' : 'Kurumu sil',
+        message: isStartup
+            ? 'Girişim kartın ve gönderdiğin görüşme talepleri silinir, '
+                  'hesabın kapatılır. Bu geri alınamaz.'
+            : 'Bilgilendirme kartın silinir, '
+                  '${organization.standCode ?? '—'} standı boşa çıkar ve '
+                  'hesabın kapatılır. Bu geri alınamaz.',
       );
       if (confirmed != true || !context.mounted) return;
 
@@ -81,7 +86,12 @@ class OrgProfileScreen extends ConsumerWidget {
             AppSpace.xxxl * 2,
           ),
           children: [
-            Reveal(child: Text('Kurum', style: AppTypography.displayMedium)),
+            Reveal(
+              child: Text(
+                organization.kind.label,
+                style: AppTypography.displayMedium,
+              ),
+            ),
             const SizedBox(height: AppSpace.sm),
             Reveal(
               delay: const Duration(milliseconds: 80),
@@ -94,9 +104,17 @@ class OrgProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpace.xl),
 
+            // The booth is the one thing on this screen a startup does not
+            // have; it gets the stage it is at instead, which is the fact its
+            // own account most often needs to correct.
             Reveal(
               delay: const Duration(milliseconds: 140),
-              child: _StandLock(standCode: organization.standCode),
+              child: isStartup
+                  ? _StageState(
+                      stage: organization.stageLabel,
+                      sector: organization.sectorLabel,
+                    )
+                  : _StandLock(standCode: organization.standCode),
             ),
 
             const SizedBox(height: AppSpace.xl),
@@ -113,7 +131,11 @@ class OrgProfileScreen extends ConsumerWidget {
             const SizedBox(height: AppSpace.sm),
             Text(
               availability.isEmpty
-                  ? 'Saat açmadan ziyaretçiler senden toplantı talep edemez.'
+                  ? isStartup
+                        ? 'Saat açmadan yatırımcılar senden görüşme talep '
+                              'edemez.'
+                        : 'Saat açmadan ziyaretçiler senden toplantı talep '
+                              'edemez.'
                   : 'Bir saate dokunarak türünü ve açıklamasını '
                         'değiştirebilir ya da kapatabilirsin. Gelen talepler '
                         'ana sayfanda görünür.',
@@ -168,12 +190,61 @@ class OrgProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpace.md),
             DangerAction(
-              label: 'Kurumu ve standı sil',
+              label: isStartup ? 'Girişimi sil' : 'Kurumu ve standı sil',
               icon: Icons.delete_forever_rounded,
               onTap: remove,
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Where the venture stands today, and a nudge to keep it true.
+///
+/// A startup's stage is the opposite of the exhibitor's booth: it is the field
+/// most likely to be *wrong* a month after signup, so it is stated up front
+/// with the card editor named as the place to change it.
+class _StageState extends StatelessWidget {
+  const _StageState({required this.stage, required this.sector});
+
+  final String? stage;
+  final String? sector;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
+    return GlassSurface(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      tint: accent,
+      tintOpacity: 0.12,
+      borderColor: accent.withValues(alpha: 0.30),
+      child: Row(
+        children: [
+          Icon(Icons.insights_rounded, size: 20, color: accent),
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  [?stage, ?sector].join('  ·  ').isEmpty
+                      ? 'Aşama seçilmedi'
+                      : [?stage, ?sector].join('  ·  '),
+                  style: AppTypography.titleSmall,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Aşaman değiştiğinde KARTIM sekmesindeki DÜZENLE ile '
+                  'güncelle; kartını okuyan ilk bunu görüyor.',
+                  style: AppTypography.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

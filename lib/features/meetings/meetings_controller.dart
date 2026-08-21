@@ -5,28 +5,55 @@ import '../../data/organization_repository.dart';
 import '../../domain/meeting.dart';
 import '../../domain/availability_slot.dart';
 import '../../domain/organization.dart';
-import '../../domain/user_role.dart';
 import '../profile/profile_controller.dart';
 
-/// The signed-in account's meetings.
+/// Requests addressed to this account — the ones it answers.
 ///
-/// Which side of the table they are on depends on the role: a visitor sees the
-/// requests they sent, an exhibitor sees the requests addressed to them. Both
-/// are the same collection read from a different angle.
-final meetingsStreamProvider = StreamProvider<List<Meeting>>((ref) {
+/// Only an account with a published card can receive any, and both kinds of
+/// card can: an exhibitor is asked by investors and founders, a startup is
+/// asked by investors. The founder is on both sides of the table at once, which
+/// is why the two directions are separate providers instead of one query
+/// chosen by role.
+final hostedMeetingsStreamProvider = StreamProvider<List<Meeting>>((ref) {
   final profile = ref.watch(profileProvider);
   final uid = profile.uid;
-  if (uid == null) return Stream.value(const <Meeting>[]);
-
-  final repository = ref.watch(meetingRepositoryProvider);
-  return profile.role == UserRole.corporate
-      ? repository.watchForOrganization(uid)
-      : repository.watchForRequester(uid);
+  if (uid == null || !(profile.role?.publishesCard ?? false)) {
+    return Stream.value(const <Meeting>[]);
+  }
+  return ref.watch(meetingRepositoryProvider).watchForOrganization(uid);
 });
 
-final meetingsProvider = Provider<List<Meeting>>(
-  (ref) => ref.watch(meetingsStreamProvider).value ?? const [],
+/// Requests this account sent — the ones it is waiting on.
+///
+/// Not gated by [UserRole.canRequestMeetings]: only two roles are offered the
+/// request action, but any account that somehow holds a meeting has to be able
+/// to see it. A role that never asked for one simply reads back nothing.
+final sentMeetingsStreamProvider = StreamProvider<List<Meeting>>((ref) {
+  final uid = ref.watch(profileProvider).uid;
+  if (uid == null) return Stream.value(const <Meeting>[]);
+  return ref.watch(meetingRepositoryProvider).watchForRequester(uid);
+});
+
+final hostedMeetingsProvider = Provider<List<Meeting>>(
+  (ref) => ref.watch(hostedMeetingsStreamProvider).value ?? const [],
 );
+
+final sentMeetingsProvider = Provider<List<Meeting>>(
+  (ref) => ref.watch(sentMeetingsStreamProvider).value ?? const [],
+);
+
+/// Every meeting this account is a party to, in time order.
+///
+/// What the agenda, the profile counter and the account teardown all read: none
+/// of them cares which side of the table a meeting sits on, only that it is on
+/// this person's day.
+final meetingsProvider = Provider<List<Meeting>>((ref) {
+  final all = [
+    ...ref.watch(hostedMeetingsProvider),
+    ...ref.watch(sentMeetingsProvider),
+  ]..sort((a, b) => a.start.compareTo(b.start));
+  return all;
+});
 
 /// The meeting already arranged with a given exhibitor, if any. Lets the info
 /// card swap "request a meeting" for its booked state.
@@ -66,6 +93,13 @@ class MeetingsController {
       requesterId: uid,
       requesterName: profile.fullName.isEmpty ? 'Ziyaretçi' : profile.fullName,
       requesterEmail: profile.email,
+      // Only an investor has these, and they are the reason the exhibitor
+      // reads the request at all — so they are stamped on it here rather than
+      // looked up from a profile the exhibitor is not allowed to read.
+      requesterCompany: profile.companyName.trim().isEmpty
+          ? null
+          : profile.companyName.trim(),
+      requesterKind: profile.investorKind,
       start: start,
       end: end,
       // An online slot has no place to walk to; an in-person one meets at the
@@ -105,6 +139,7 @@ final organizationSlotsProvider =
       if (organization == null) return const [];
 
       final ownMeetings = ref.watch(meetingsProvider);
+      final ownUid = ref.watch(profileProvider).uid;
       final now = DateTime.now();
 
       final slots = <OrganizationSlot>[];
@@ -128,6 +163,10 @@ final organizationSlotsProvider =
             end: end,
             clash: own,
             isWithThisOrganization: own?.organizationId == orgId,
+            // A founder who has been booked by an investor is busy at that
+            // hour too, but the meeting is theirs to host — so it has to read
+            // as "you are hosting X" rather than as their own venture's name.
+            clashIsHosted: own != null && own.organizationId == ownUid,
           ),
         );
       }
@@ -142,6 +181,7 @@ class OrganizationSlot {
     required this.end,
     required this.clash,
     required this.isWithThisOrganization,
+    this.clashIsHosted = false,
   });
 
   /// What the exhibitor published for this time: the kind of meeting and what
@@ -162,13 +202,19 @@ class OrganizationSlot {
   /// "already booked" rather than as "you are busy".
   final bool isWithThisOrganization;
 
+  /// Whether the clash is a meeting this account is hosting rather than one it
+  /// asked for — the founder's case, where the other party is the requester.
+  final bool clashIsHosted;
+
   bool get available => clash == null;
 
   String? get blockedReason {
+    final clash = this.clash;
     if (clash == null) return null;
-    return isWithThisOrganization
-        ? 'Bu saat için talebin gönderildi'
-        : '${clash!.organizationName} ile toplantın var';
+    if (isWithThisOrganization) return 'Bu saat için talebin gönderildi';
+    return clashIsHosted
+        ? '${clash.requesterName} ile görüşmen var'
+        : '${clash.organizationName} ile toplantın var';
   }
 }
 

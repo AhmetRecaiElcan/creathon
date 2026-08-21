@@ -14,8 +14,8 @@ import '../../core/widgets/select_chip.dart';
 import '../../domain/brand_color.dart';
 import '../../domain/taxonomy.dart';
 import 'organization_controller.dart';
-import 'widgets/channel_edit_sheet.dart';
 import 'widgets/org_card.dart';
+import 'widgets/panel_picker.dart';
 
 /// Everything on the info card, in one form.
 ///
@@ -127,6 +127,7 @@ class _OrgEditScreenState extends ConsumerState<OrgEditScreen> {
     if (organization == null) return const Scaffold(body: SizedBox.shrink());
 
     final controller = ref.read(organizationProvider.notifier);
+    final isStartup = organization.kind.isStartup;
 
     return Scaffold(
       body: SafeArea(
@@ -195,9 +196,14 @@ class _OrgEditScreenState extends ConsumerState<OrgEditScreen> {
                   ),
 
                   const SizedBox(height: AppSpace.xl),
-                  const SectionHeader('KURUM BİLGİLERİ'),
+                  SectionHeader(
+                    isStartup ? 'GİRİŞİM BİLGİLERİ' : 'KURUM BİLGİLERİ',
+                  ),
                   const SizedBox(height: AppSpace.md),
-                  GlassField(label: 'KURUM ADI', controller: _name),
+                  GlassField(
+                    label: isStartup ? 'GİRİŞİM ADI' : 'KURUM ADI',
+                    controller: _name,
+                  ),
                   const SizedBox(height: AppSpace.lg),
                   GlassField(
                     label: 'İLETİŞİM E-POSTASI',
@@ -205,14 +211,44 @@ class _OrgEditScreenState extends ConsumerState<OrgEditScreen> {
                     keyboardType: TextInputType.emailAddress,
                   ),
                   const SizedBox(height: AppSpace.lg),
-                  GlassField(label: 'ADRES', controller: _address),
+                  // A startup has no address a visitor walks to, so the field
+                  // asks for the city and says it can be left empty.
+                  GlassField(
+                    label: isStartup ? 'ŞEHİR' : 'ADRES',
+                    controller: _address,
+                    helper: isStartup ? 'İsteğe bağlı.' : null,
+                  ),
                   const SizedBox(height: AppSpace.lg),
                   GlassField(
-                    label: 'AÇIKLAMA',
+                    label: isStartup ? 'NE YAPIYORSUNUZ?' : 'AÇIKLAMA',
                     controller: _description,
                     maxLines: 4,
                     textInputAction: TextInputAction.newline,
                   ),
+
+                  if (isStartup) ...[
+                    const SizedBox(height: AppSpace.xl),
+                    const SectionHeader('AŞAMA'),
+                    const SizedBox(height: AppSpace.md),
+                    Wrap(
+                      spacing: AppSpace.sm,
+                      runSpacing: AppSpace.sm,
+                      children: [
+                        for (final stage in Taxonomy.stages)
+                          SelectChip(
+                            label: stage,
+                            selected: organization.stageLabel == stage,
+                            onTap: () {
+                              controller
+                                ..setStage(
+                                  organization.stageLabel == stage ? '' : stage,
+                                )
+                                ..save();
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
 
                   const SizedBox(height: AppSpace.xl),
                   const SectionHeader('MARKA RENGİ'),
@@ -269,6 +305,27 @@ class _OrgEditScreenState extends ConsumerState<OrgEditScreen> {
                     ],
                   ),
 
+                  // The stage programme belongs to the exhibitors: the slots
+                  // are theirs, and a startup that wants one asks the organiser
+                  // rather than booking it here.
+                  if (!isStartup) ...[
+                    const SizedBox(height: AppSpace.xl),
+                    const SectionHeader('SAHNE SUNUMU'),
+                    const SizedBox(height: AppSpace.sm),
+                    Text(
+                      organization.panelLabel == null
+                          ? 'Sahnede sunum yapacaksan gününü ve saatini seç. '
+                                'Ziyaretçilerin ana sayfasında görünür.'
+                          : 'Sunumun ${organization.panelLabel}. Seçili güne '
+                                'tekrar dokunmak sunumu kaldırır.',
+                      style: AppTypography.bodySmall,
+                    ),
+                    const SizedBox(height: AppSpace.md),
+                    // Saves on every tap, unlike the text fields: a chip has no
+                    // "done" moment the way a field being left does.
+                    const PanelPicker(),
+                  ],
+
                   const SizedBox(height: AppSpace.xl),
                   const SectionHeader('İLETİŞİM KANALLARI'),
                   const SizedBox(height: AppSpace.md),
@@ -305,4 +362,22 @@ class _OrgEditScreenState extends ConsumerState<OrgEditScreen> {
       ),
     );
   }
+}
+
+/// Confirms a save without stealing the screen.
+void showCardNotice(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppPalette.inkOverlay,
+        content: Text(
+          message,
+          style: AppTypography.bodySmall.copyWith(
+            color: AppPalette.textPrimary,
+          ),
+        ),
+      ),
+    );
 }

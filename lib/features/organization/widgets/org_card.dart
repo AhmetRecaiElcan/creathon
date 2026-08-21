@@ -24,7 +24,6 @@ class OrgCard extends StatelessWidget {
     this.showLinks = true,
     this.onRequestMeeting,
     this.bookedLabel,
-    this.onEditChannel,
   });
 
   final Organization organization;
@@ -42,11 +41,6 @@ class OrgCard extends StatelessWidget {
   /// Set when this visitor already has a meeting with the exhibitor, which
   /// replaces the request action with its outcome.
   final String? bookedLabel;
-
-  /// Set only on the owner's own preview: puts a pencil beside each channel so
-  /// a wrong handle can be fixed where it is noticed, rather than from a form
-  /// somewhere else.
-  final ValueChanged<OrgChannel>? onEditChannel;
 
   @override
   Widget build(BuildContext context) {
@@ -70,10 +64,11 @@ class OrgCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (organization.standCode != null)
+                    // Booth, kind, stage and field — whichever this card has.
+                    // For a startup this line is the whole first impression.
+                    if (organization.cardEyebrow != null)
                       Text(
-                        'STAND ${organization.standCode}'
-                        '${organization.sectorLabel == null ? '' : '  ·  ${organization.sectorLabel}'}',
+                        organization.cardEyebrow!,
                         style: AppTypography.eyebrow.copyWith(color: color),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -81,7 +76,7 @@ class OrgCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       organization.name.isEmpty
-                          ? 'Adsız kurum'
+                          ? 'Adsız ${organization.kind.label.toLowerCase()}'
                           : organization.name,
                       style: AppTypography.titleLarge,
                       maxLines: 2,
@@ -130,6 +125,26 @@ class OrgCard extends StatelessWidget {
             ),
           ],
 
+          // A talk is a reason to come back at a particular hour, so it sits
+          // with the address rather than among the contact channels.
+          if (organization.panelLabel != null) ...[
+            const SizedBox(height: AppSpace.sm),
+            Row(
+              children: [
+                Icon(Icons.campaign_rounded, size: 15, color: color),
+                const SizedBox(width: AppSpace.sm),
+                Expanded(
+                  child: Text(
+                    'Sahne sunumu · ${organization.panelLabel}',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppPalette.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+
           if (bookedLabel != null) ...[
             const SizedBox(height: AppSpace.lg),
             _MeetingState(label: bookedLabel!, color: color),
@@ -142,14 +157,7 @@ class OrgCard extends StatelessWidget {
             const SizedBox(height: AppSpace.lg),
             Container(height: 1, color: AppPalette.stroke),
             const SizedBox(height: AppSpace.sm),
-            for (final link in links)
-              _LinkRow(
-                link: link,
-                color: color,
-                onEdit: onEditChannel == null
-                    ? null
-                    : () => onEditChannel!(link.channel),
-              ),
+            for (final link in links) _LinkRow(link: link, color: color),
           ],
         ],
       ),
@@ -256,17 +264,10 @@ class _LikeButton extends StatelessWidget {
 /// who taps Instagram and sees nothing happen has no way to tell whether the
 /// company published a broken handle or the app is broken.
 class _LinkRow extends StatelessWidget {
-  const _LinkRow({
-    required this.link,
-    required this.color,
-    required this.onEdit,
-  });
+  const _LinkRow({required this.link, required this.color});
 
   final OrgLink link;
   final Color color;
-
-  /// Owner-only. Null for everyone else, which leaves the row read-only.
-  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -332,18 +333,6 @@ class _LinkRow extends StatelessWidget {
               size: 15,
               color: AppPalette.textTertiary,
             ),
-            if (onEdit != null) ...[
-              const SizedBox(width: AppSpace.lg),
-              Semantics(
-                button: true,
-                label: '${link.label} düzenle',
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onEdit,
-                  child: Icon(Icons.edit_outlined, size: 17, color: color),
-                ),
-              ),
-            ],
           ],
         ),
       ),

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'availability_slot.dart';
 import 'brand_color.dart';
+import 'org_kind.dart';
+import 'panel_slot.dart';
 
 /// Which field on the organisation a link came from.
 ///
@@ -52,6 +54,7 @@ class OrgLink {
 class Organization {
   const Organization({
     required this.id,
+    this.kind = OrgKind.corporate,
     this.name = '',
     this.email = '',
     this.address = '',
@@ -60,14 +63,24 @@ class Organization {
     this.logoBase64,
     this.standCode,
     this.sector,
+    this.stage,
     this.website,
     this.instagram,
     this.linkedin,
     this.phone,
     this.availability = const [],
+    this.panelDay,
+    this.panelTime,
   });
 
   final String id;
+
+  /// Whether this card belongs to an exhibiting company or to a startup.
+  ///
+  /// Decides three things and nothing else: whether a booth is required before
+  /// the card can go live, what the eyebrow says where the booth code would be,
+  /// and whether the maturity stage is shown.
+  final OrgKind kind;
 
   final String name;
 
@@ -93,6 +106,14 @@ class Organization {
 
   final String? sector;
 
+  /// How far along the venture is, from [Taxonomy.stages] — Fikir, Prototip,
+  /// Pre-seed, Seed, Seri A, Seri B+.
+  ///
+  /// The single most useful word on a startup's card: it tells an investor
+  /// whether this is a conversation they can have at all, before they read a
+  /// line of the description. Null on an exhibitor's card, which has no stage.
+  final String? stage;
+
   final String? website;
   final String? instagram;
   final String? linkedin;
@@ -104,6 +125,14 @@ class Organization {
   /// routine ("we take meetings from two to four"), not a set of specific
   /// instants — and because it stays readable in the console.
   final List<AvailabilitySlot> availability;
+
+  /// The stage talk this exhibitor booked, if any. Optional: a company can
+  /// exhibit without taking the stage.
+  final int? panelDay;
+  final String? panelTime;
+
+  /// `2. Gün · 14:00`, or null when no talk was booked.
+  String? get panelLabel => PanelSlots.labelFor(panelDay, panelTime);
 
   /// Just the times, for the checks that only care whether a slot exists.
   Set<String> get openTimes => {for (final slot in availability) slot.time};
@@ -138,6 +167,32 @@ class Organization {
     return value == null || value.isEmpty ? null : value;
   }
 
+  String? get stageLabel {
+    final value = stage?.trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  /// Short badge for a list row: the booth when there is one, otherwise what
+  /// this card is. A row of names with nothing to place them is unreadable.
+  String get badgeLabel =>
+      standCode == null ? kind.badge : 'STAND $standCode';
+
+  /// The card's eyebrow line: where to find them, what they are, how far along
+  /// and in which field — whichever of those exist, in that order.
+  String? get cardEyebrow {
+    final parts = [
+      badgeLabel,
+      if (kind.isStartup) ?stageLabel,
+      ?sectorLabel,
+    ];
+    // An exhibitor with no booth is mid-setup; showing a bare "KURUM" there
+    // would put a label on the card where the plan says a stand goes.
+    if (kind == OrgKind.corporate && standCode == null) {
+      return sectorLabel;
+    }
+    return parts.join('  ·  ');
+  }
+
   /// Up to two letters, used wherever there is no logo to draw.
   String get initials {
     final words = name.split(' ').where((w) => w.isNotEmpty).toList();
@@ -148,15 +203,25 @@ class Organization {
 
   /// Everything needed before the card can be published.
   ///
-  /// The address and the description are required because the card exists to
-  /// answer "who are you and where do I find you"; a card missing either is
-  /// not worth a visitor's scan.
-  bool get isComplete =>
-      name.trim().isNotEmpty &&
-      email.trim().isNotEmpty &&
-      address.trim().isNotEmpty &&
-      description.trim().isNotEmpty &&
-      standCode != null;
+  /// For an exhibitor the address and the booth are required because its card
+  /// exists to answer "who are you and where do I find you"; a card missing
+  /// either is not worth a visitor's scan.
+  ///
+  /// A startup is not standing anywhere — it is walking the hall — so the booth
+  /// and the address drop out, and the stage takes their place: a card that
+  /// does not say Fikir from Seri A is not worth an investor's time.
+  bool get isComplete {
+    final named =
+        name.trim().isNotEmpty &&
+        email.trim().isNotEmpty &&
+        description.trim().isNotEmpty;
+    if (!named) return false;
+
+    return switch (kind) {
+      OrgKind.corporate => address.trim().isNotEmpty && standCode != null,
+      OrgKind.startup => stageLabel != null,
+    };
+  }
 
   /// Reachable channels, in the order a visitor is most likely to want them.
   /// Empty fields are simply absent rather than rendered as dead rows.
@@ -236,6 +301,7 @@ class Organization {
   }
 
   Organization copyWith({
+    OrgKind? kind,
     String? name,
     String? email,
     String? address,
@@ -244,15 +310,21 @@ class Organization {
     String? logoBase64,
     String? standCode,
     String? sector,
+    String? stage,
     String? website,
     String? instagram,
     String? linkedin,
     String? phone,
     List<AvailabilitySlot>? availability,
+    int? panelDay,
+    String? panelTime,
     bool clearLogo = false,
+    // A talk can be given up, and null means "leave alone" everywhere else.
+    bool clearPanel = false,
   }) {
     return Organization(
       id: id,
+      kind: kind ?? this.kind,
       name: name ?? this.name,
       email: email ?? this.email,
       address: address ?? this.address,
@@ -261,15 +333,19 @@ class Organization {
       logoBase64: clearLogo ? null : (logoBase64 ?? this.logoBase64),
       standCode: standCode ?? this.standCode,
       sector: sector ?? this.sector,
+      stage: stage ?? this.stage,
       website: website ?? this.website,
       instagram: instagram ?? this.instagram,
       linkedin: linkedin ?? this.linkedin,
       phone: phone ?? this.phone,
       availability: availability ?? this.availability,
+      panelDay: clearPanel ? null : (panelDay ?? this.panelDay),
+      panelTime: clearPanel ? null : (panelTime ?? this.panelTime),
     );
   }
 
   Map<String, Object?> toMap() => {
+    'kind': kind.id,
     'name': name,
     'email': email,
     'address': address,
@@ -279,11 +355,14 @@ class Organization {
     'logoBase64': logoBase64,
     'standCode': standCode,
     'sector': sector,
+    'stage': stage,
     'website': website,
     'instagram': instagram,
     'linkedin': linkedin,
     'phone': phone,
     'availability': [for (final slot in availability) slot.toMap()],
+    'panelDay': panelDay,
+    'panelTime': panelTime,
   };
 
   static Organization fromMap(Map<String, Object?> map, {required String id}) {
@@ -296,6 +375,9 @@ class Organization {
 
     return Organization(
       id: id,
+      // Absent on every card written before the entrepreneur portfolio, which
+      // is exactly what [OrgKind.fromId] defaults to.
+      kind: OrgKind.fromId(map['kind'] as String?),
       name: (map['name'] as String?) ?? '',
       email: (map['email'] as String?) ?? '',
       address: (map['address'] as String?) ?? '',
@@ -304,11 +386,14 @@ class Organization {
       logoBase64: map['logoBase64'] as String?,
       standCode: (map['standCode'] as String?)?.trim(),
       sector: map['sector'] as String?,
+      stage: (map['stage'] as String?)?.trim(),
       website: map['website'] as String?,
       instagram: map['instagram'] as String?,
       linkedin: map['linkedin'] as String?,
       phone: map['phone'] as String?,
       availability: _readAvailability(map),
+      panelDay: (map['panelDay'] as num?)?.toInt(),
+      panelTime: (map['panelTime'] as String?)?.trim(),
     );
   }
 }

@@ -66,7 +66,12 @@ enum UserRole {
   /// All four audiences stay visible on the welcome screen — the platform's
   /// promise is that it serves every one of them — but only a shipped role can
   /// be entered. The rest light up as their experience lands on the same shell.
-  static const shipped = {UserRole.visitor, UserRole.corporate};
+  static const shipped = {
+    UserRole.visitor,
+    UserRole.corporate,
+    UserRole.investor,
+    UserRole.entrepreneur,
+  };
 
   bool get isShipped => shipped.contains(this);
 
@@ -74,10 +79,20 @@ enum UserRole {
   ///
   /// A visitor comes to see the event, not to transact — the ones with a
   /// reason to book a company's time are the founder looking for a pilot and
-  /// the fund looking for a deal. Their portfolios are not built yet, so today
-  /// this is true for nobody and the exhibitor's request list stays empty.
+  /// the fund looking for a deal. The investor portfolio has shipped, so this
+  /// is what fills an exhibitor's request list today.
   bool get canRequestMeetings =>
       this == UserRole.entrepreneur || this == UserRole.investor;
+
+  /// Who publishes an info card at `organizations/{uid}`.
+  ///
+  /// The exhibitor and the founder both do, and they get the same card, the
+  /// same QR and the same meeting hours — what differs is that only the
+  /// exhibitor holds a booth. Everything keyed off "does this account have a
+  /// card" reads this rather than testing for one role and forgetting the
+  /// other: the tab bar, the session restore, the onboarding gate.
+  bool get publishesCard =>
+      this == UserRole.corporate || this == UserRole.entrepreneur;
 
   static UserRole? fromId(String? id) {
     for (final role in values) {

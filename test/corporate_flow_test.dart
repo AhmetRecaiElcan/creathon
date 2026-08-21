@@ -218,6 +218,78 @@ void main() {
     expect(auth.hasSession, isFalse);
   });
 
+  testWidgets('a stage talk booked at signup reaches the visitor home', (
+    tester,
+  ) async {
+    final auth = FakeAuthRepository();
+    final repository = FakeOrganizationRepository();
+
+    await pumpApp(tester, auth: auth, organizations: repository);
+    await registerCorporate(tester, auth);
+    await fillOrgDetails(tester);
+    await tester.tap(find.text('Devam'));
+    await advance(tester, frames: 10);
+
+    // The talk is offered on the same step as the booth, and is optional.
+    expect(find.text('SAHNE SUNUMU'), findsOneWidget);
+    expect(find.text('2. Gün'), findsOneWidget);
+
+    final container = containerOf(tester);
+    container.read(organizationProvider.notifier)
+      ..pickStand('A1')
+      ..setPanelDay(2)
+      ..setPanelTime('14:00');
+    await advance(tester, frames: 6);
+
+    await tester.tap(find.text('Standı onayla'));
+    await advance(tester, frames: 10);
+    await tester.tap(find.text('Kartı yayına al'));
+    await advance(tester, frames: 14);
+
+    expect(repository.organizations.single.panelDay, 2);
+    expect(repository.organizations.single.panelTime, '14:00');
+    expect(repository.organizations.single.panelLabel, '2. Gün · 14:00');
+  });
+
+  testWidgets('a visitor sees the exhibitors\' stage talks on their home', (
+    tester,
+  ) async {
+    final auth = FakeAuthRepository();
+
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository(const [
+        Organization(
+          id: 'org-1',
+          name: 'Nexora Robotik',
+          email: 'bilgi@nexora.com',
+          address: 'Pendik',
+          description: 'Otonom seyir yazılımı.',
+          standCode: 'A1',
+          panelDay: 2,
+          panelTime: '14:00',
+        ),
+        // No talk booked: must not appear in the list.
+        Organization(
+          id: 'org-2',
+          name: 'OrbitLink',
+          email: 'bilgi@orbitlink.com',
+          address: 'Ankara',
+          description: 'Yer istasyonu ağı.',
+          standCode: 'A3',
+        ),
+      ]),
+    );
+    await completeOnboarding(tester, auth: auth);
+
+    expect(find.text('SAHNE SUNUMLARI'), findsOneWidget);
+    expect(find.text('14:00'), findsOneWidget);
+    expect(find.text('2. gün'), findsOneWidget);
+    expect(find.text('Nexora Robotik'), findsOneWidget);
+    expect(find.text('OrbitLink'), findsNothing);
+  });
+
   testWidgets('a visitor keeps a scanned card on their agenda', (tester) async {
     final auth = FakeAuthRepository();
     final repository = FakeOrganizationRepository(const [

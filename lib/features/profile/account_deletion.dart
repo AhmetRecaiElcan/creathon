@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_typography.dart';
 import '../../data/auth_repository.dart';
+import '../../data/meeting_repository.dart';
 import '../../data/profile_repository.dart';
+import '../../domain/meeting.dart';
+import '../meetings/meetings_controller.dart';
 import '../organization/organization_controller.dart';
 import 'profile_controller.dart';
 
@@ -22,8 +25,13 @@ class AccountDeletion {
 
   final Ref _ref;
 
-  /// Removes the visitor's profile document and their account.
+  /// Removes the account's own profile document and the account itself.
+  ///
+  /// Also used by the investor, whose record is the same shape — a user
+  /// document and the requests they sent.
   Future<void> deleteVisitor() async {
+    await _cancelMeetings();
+
     final uid = _ref.read(profileProvider).uid;
     if (uid != null) {
       await _ref.read(profileRepositoryProvider).delete(uid);
@@ -32,10 +40,14 @@ class AccountDeletion {
     _ref.read(profileProvider.notifier).reset();
   }
 
-  /// Removes the exhibitor's card, releases its booth, then removes the
-  /// account. The card and the booth lock go together in one batch, so the
-  /// floor plan can never show a stand with no card behind it.
+  /// Removes a published card, releases its booth if it holds one, then removes
+  /// the account.
+  ///
+  /// Serves the founder as well as the exhibitor: the card and the booth lock go
+  /// together in one batch, so the floor plan can never show a stand with no
+  /// card behind it, and a startup simply has no lock to release.
   Future<void> deleteCorporate() async {
+    await _cancelMeetings();
     await _ref.read(organizationProvider.notifier).withdraw();
 
     final uid = _ref.read(profileProvider).uid;
@@ -44,6 +56,24 @@ class AccountDeletion {
     }
     await _ref.read(authRepositoryProvider).deleteAccount();
     _ref.read(profileProvider.notifier).reset();
+  }
+
+  /// Drops every meeting this account is a party to, before the account goes.
+  ///
+  /// The rules let only the two parties touch a request, so a meeting left
+  /// behind here can never be removed by anyone — and it would keep its slot
+  /// blocked against a company that is still exhibiting, for a person who no
+  /// longer exists. Failures are swallowed: losing the account is the point of
+  /// the operation, and a stuck request must not stand in the way of it.
+  Future<void> _cancelMeetings() async {
+    final repository = _ref.read(meetingRepositoryProvider);
+    for (final meeting in _ref.read(meetingsProvider)) {
+      try {
+        await repository.respond(meeting, MeetingStatus.declined);
+      } catch (error) {
+        debugPrint('Toplantı iptal edilemedi: $error');
+      }
+    }
   }
 }
 

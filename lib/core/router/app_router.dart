@@ -7,6 +7,7 @@ import '../../domain/user_role.dart';
 import '../../features/agenda/agenda_screen.dart';
 import '../../features/expo/expo_screen.dart';
 import '../../features/home/home_screen.dart';
+import '../../features/meetings/investor_meetings_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/organization/org_card_screen.dart';
 import '../../features/organization/org_profile_screen.dart';
@@ -71,6 +72,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 builder: (_, _) => const _RoleScreen(
                   visitor: AgendaScreen(),
                   corporate: OrgCardScreen(),
+                  investor: InvestorMeetingsScreen(),
+                  // The founder's card is the exhibitor's card: same widget,
+                  // same QR, same editing — only the contents differ.
+                  entrepreneur: OrgCardScreen(),
                 ),
               ),
             ],
@@ -82,6 +87,9 @@ final routerProvider = Provider<GoRouter>((ref) {
                 builder: (_, _) => const _RoleScreen(
                   visitor: ProfileScreen(),
                   corporate: OrgProfileScreen(),
+                  // Meeting hours and the way out — the same account settings
+                  // the exhibitor gets, minus the booth.
+                  entrepreneur: OrgProfileScreen(),
                 ),
               ),
             ],
@@ -92,22 +100,34 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-/// Picks between two screens by audience.
+/// Picks a screen by audience.
 ///
-/// Both are built as constants and only one is mounted, so switching roles
-/// after a sign-out rebuilds the branch with the other screen rather than
-/// leaving the previous audience's state behind it.
+/// All of them are built as constants and only one is mounted, so switching
+/// roles after a sign-out rebuilds the branch with the other screen rather than
+/// leaving the previous audience's state behind it. [investor] is optional: on
+/// the tabs where the investor's job is the same as the visitor's — the profile
+/// — falling through is the correct answer, not a placeholder.
 class _RoleScreen extends ConsumerWidget {
-  const _RoleScreen({required this.visitor, required this.corporate});
+  const _RoleScreen({
+    required this.visitor,
+    required this.corporate,
+    this.investor,
+    this.entrepreneur,
+  });
 
   final Widget visitor;
   final Widget corporate;
+  final Widget? investor;
+  final Widget? entrepreneur;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return ref.watch(profileProvider).role == UserRole.corporate
-        ? corporate
-        : visitor;
+    return switch (ref.watch(profileProvider).role) {
+      UserRole.corporate => corporate,
+      UserRole.investor => investor ?? visitor,
+      UserRole.entrepreneur => entrepreneur ?? visitor,
+      _ => visitor,
+    };
   }
 }
 

@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/organization_repository.dart';
 import '../../domain/availability_slot.dart';
 import '../../domain/brand_color.dart';
+import '../../domain/org_kind.dart';
 import '../../domain/organization.dart';
-import '../../domain/user_role.dart';
 import '../profile/profile_controller.dart';
 
 /// The signed-in exhibitor's own card, and whether it is live yet.
@@ -32,10 +32,55 @@ class OrganizationController extends Notifier<OrgState> {
   OrgState build() => const OrgState();
 
   /// Begins a card for a freshly created account.
-  void start({required String id, required String name, required String email}) {
+  ///
+  /// [kind] decides what this card will have to answer before it can go live: a
+  /// booth and an address for an exhibitor, a stage for a startup.
+  void start({
+    required String id,
+    required String name,
+    required String email,
+    OrgKind kind = OrgKind.corporate,
+  }) {
     state = OrgState(
-      organization: Organization(id: id, name: name, email: email),
+      organization: Organization(id: id, kind: kind, name: name, email: email),
     );
+  }
+
+  /// The startup's own details, collected in one step because they are one
+  /// thought: this is my venture, this is what it does, this is where to reach
+  /// it. Kept apart from [setIdentity] so it cannot blank the address field an
+  /// exhibitor's form owns.
+  void setVenture({
+    required String name,
+    required String description,
+    required String email,
+    BrandColor? brand,
+  }) {
+    final current = state.organization;
+    if (current == null) return;
+    state = state.copyWith(
+      organization: current.copyWith(
+        name: name.trim().isEmpty ? null : name.trim(),
+        description: description,
+        email: email,
+        brand: brand,
+      ),
+    );
+  }
+
+  /// How far along the venture is. An empty string clears it, the same way the
+  /// sector chips clear themselves when the chosen one is tapped again.
+  void setStage(String stage) {
+    final current = state.organization;
+    if (current == null) return;
+    state = state.copyWith(organization: current.copyWith(stage: stage));
+  }
+
+  /// Single-select sector, without touching the fields [setIdentity] owns.
+  void setSector(String sector) {
+    final current = state.organization;
+    if (current == null) return;
+    state = state.copyWith(organization: current.copyWith(sector: sector));
   }
 
   void setIdentity({
@@ -108,6 +153,32 @@ class OrganizationController extends Notifier<OrgState> {
     );
   }
 
+  /// Picks the day for a stage talk, or gives the talk up when [day] is null.
+  ///
+  /// Choosing a day always drops the hour: which hours are still free differs
+  /// per day, so carrying one over could leave the company holding a slot
+  /// somebody else already has.
+  ///
+  /// Day and hour are set separately because a day arrives first and an hour
+  /// second — a single setter would have to treat "day chosen, hour not yet"
+  /// as incomplete and throw the day away.
+  void setPanelDay(int? day) {
+    final current = state.organization;
+    if (current == null) return;
+    final cleared = current.copyWith(clearPanel: true);
+    state = state.copyWith(
+      organization: day == null ? cleared : cleared.copyWith(panelDay: day),
+    );
+  }
+
+  /// Sets the hour on the day already chosen. Ignored without a day, which the
+  /// picker prevents by only showing hours once one is picked.
+  void setPanelTime(String time) {
+    final current = state.organization;
+    if (current == null || current.panelDay == null) return;
+    state = state.copyWith(organization: current.copyWith(panelTime: time));
+  }
+
   /// Removes the card and releases the booth.
   ///
   /// Separate from signing out because it is irreversible and outward-facing:
@@ -172,17 +243,17 @@ final organizationProvider =
 
 /// Whether the app's tab shell may be entered.
 ///
-/// The bar differs by audience: a visitor needs interests before the feed
-/// means anything, an exhibitor needs a published card before there is
-/// anything to show. Keeping the rule here rather than on [UserProfile] is
-/// what lets it consult the organisation as well as the profile.
+/// The bar differs by audience: a visitor needs interests before the feed means
+/// anything, and anyone who publishes a card — exhibitor or founder — needs
+/// that card live before there is anything to show. Keeping the rule here
+/// rather than on [UserProfile] is what lets it consult the organisation as
+/// well as the profile.
 final onboardedProvider = Provider<bool>((ref) {
   final profile = ref.watch(profileProvider);
   final role = profile.role;
   if (role == null || !profile.emailVerified) return false;
 
-  return switch (role) {
-    UserRole.corporate => ref.watch(organizationProvider).isReady,
-    _ => profile.isOnboarded,
-  };
+  return role.publishesCard
+      ? ref.watch(organizationProvider).isReady
+      : profile.isOnboarded;
 });

@@ -5,7 +5,6 @@ import '../../data/auth_repository.dart';
 import '../../data/organization_repository.dart';
 import '../../data/profile_repository.dart';
 import '../../domain/user_profile.dart';
-import '../../domain/user_role.dart';
 import '../organization/organization_controller.dart';
 import 'profile_controller.dart';
 
@@ -68,10 +67,10 @@ Future<void> restoreSession(ProviderContainer container) async {
         ),
       );
 
-  // An exhibitor's account is only half its record: without the card the tab
-  // shell has nothing to show, and the router would bounce them back into
-  // setup for a company that is already published.
-  if (stored.role == UserRole.corporate) {
+  // A card-publishing account — exhibitor or founder — is only half its record:
+  // without the card the tab shell has nothing to show, and the router would
+  // bounce them back into setup for something that is already published.
+  if (stored.role?.publishesCard ?? false) {
     try {
       final organization = await container
           .read(organizationRepositoryProvider)
@@ -80,7 +79,7 @@ Future<void> restoreSession(ProviderContainer container) async {
         container.read(organizationProvider.notifier).hydrate(organization);
       }
     } catch (error) {
-      debugPrint('Kurum kartı geri yüklenemedi: $error');
+      debugPrint('Kart geri yüklenemedi: $error');
     }
   }
 }

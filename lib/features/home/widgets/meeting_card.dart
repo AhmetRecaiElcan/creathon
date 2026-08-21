@@ -32,9 +32,9 @@ class MeetingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     final headline = asHost ? meeting.requesterName : meeting.organizationName;
-    final detail = asHost
-        ? (meeting.requesterEmail ?? 'Ziyaretçi')
-        : meeting.location;
+    // The host is deciding who to give a slot to, so they get the fund and the
+    // kind; the requester already knows who they asked and needs the place.
+    final detail = asHost ? meeting.requesterDetail : meeting.location;
 
     return GlassSurface(
       padding: const EdgeInsets.all(AppSpace.lg),
@@ -125,6 +125,33 @@ class MeetingCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                // The address stays visible even when the fund takes the line
+                // above it: answering a request often means writing back.
+                if (asHost &&
+                    meeting.requesterEmail != null &&
+                    meeting.requesterEmail != detail) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.mail_outline_rounded,
+                        size: 13,
+                        color: AppPalette.textTertiary,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          meeting.requesterEmail!,
+                          style: AppTypography.bodySmall.copyWith(
+                            fontSize: 12,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (meeting.note != null) ...[
                   const SizedBox(height: AppSpace.sm),
                   Text(

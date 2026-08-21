@@ -8,11 +8,10 @@ import '../../core/widgets/reveal.dart';
 import '../../core/widgets/section_header.dart';
 import '../../domain/agenda_entry.dart';
 import '../../data/organization_repository.dart';
-import '../../domain/organization.dart';
 import '../home/widgets/meeting_card.dart';
 import '../home/widgets/session_card.dart';
-import '../organization/widgets/org_card.dart';
 import '../organization/widgets/org_card_sheet.dart';
+import '../organization/widgets/org_row.dart';
 import '../profile/profile_controller.dart';
 import 'agenda_providers.dart';
 
@@ -131,7 +130,15 @@ class AgendaScreen extends ConsumerWidget {
                   padding: const EdgeInsets.only(bottom: AppSpace.md),
                   child: Reveal(
                     delay: Duration(milliseconds: 160 + i * 55),
-                    child: _LikedOrgRow(organization: liked[i]),
+                    child: OrgRow(
+                      organization: liked[i],
+                      // The same sheet the scanner opens, so the two never
+                      // drift apart.
+                      onTap: () => showOrgCardSheet(
+                        context,
+                        organizationId: liked[i].id,
+                      ),
+                    ),
                   ),
                 ),
               const SizedBox(height: AppSpace.xl),
@@ -184,70 +191,6 @@ class AgendaScreen extends ConsumerWidget {
     if (hours == 0) return '${rest}dk';
     if (rest == 0) return '${hours}s';
     return '${hours}s ${rest}dk';
-  }
-}
-
-/// One liked exhibitor, compact. Tapping opens the full card — the same sheet
-/// the scanner opens, so the two never drift apart.
-class _LikedOrgRow extends ConsumerWidget {
-  const _LikedOrgRow({required this.organization});
-
-  final Organization organization;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final color = organization.color;
-
-    return GestureDetector(
-      onTap: () =>
-          showOrgCardSheet(context, organizationId: organization.id),
-      child: GlassSurface(
-        padding: const EdgeInsets.all(AppSpace.lg),
-        tint: color,
-        tintOpacity: 0.12,
-        borderColor: color.withValues(alpha: 0.32),
-        child: Row(
-          children: [
-            OrgLogo(organization: organization, size: 44),
-            const SizedBox(width: AppSpace.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    organization.standCode == null
-                        ? 'KURUM'
-                        : 'STAND ${organization.standCode}',
-                    style: AppTypography.eyebrow.copyWith(color: color),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    organization.name,
-                    style: AppTypography.titleSmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (organization.sectorLabel != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      organization.sectorLabel!,
-                      style: AppTypography.bodySmall.copyWith(fontSize: 12),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              size: 22,
-              color: AppPalette.textTertiary,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

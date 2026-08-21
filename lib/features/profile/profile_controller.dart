@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_palette.dart';
 import '../../data/profile_repository.dart';
+import '../../domain/investor_kind.dart';
 import '../../domain/profile_wallpaper.dart';
 import '../../domain/user_profile.dart';
 import '../../domain/user_role.dart';
@@ -48,8 +49,33 @@ class ProfileController extends Notifier<UserProfile> {
     _sync();
   }
 
+  /// The investor's own two answers: who they invest for, and with what kind of
+  /// money.
+  ///
+  /// One method for both because signup collects them together — a fund with no
+  /// kind, or a kind with no fund, is not an introduction — while the profile
+  /// screen changes one at a time. Omitting a field leaves it alone.
+  void setInvestorProfile({String? companyName, InvestorKind? investorKind}) {
+    if (companyName == null && investorKind == null) return;
+    state = state.copyWith(
+      companyName: companyName?.trim(),
+      investorKind: investorKind,
+    );
+    _sync();
+  }
+
   void markVerified({String? uid}) {
     state = state.copyWith(emailVerified: true, uid: uid);
+    _sync();
+  }
+
+  /// Replaces the interest set outright.
+  ///
+  /// For the flow where another answer already implies it: a founder's venture
+  /// field is the same question as "which areas interest you", and asking twice
+  /// is how a signup loses people.
+  void setSectors(Set<String> sectors) {
+    state = state.copyWith(sectors: sectors);
     _sync();
   }
 

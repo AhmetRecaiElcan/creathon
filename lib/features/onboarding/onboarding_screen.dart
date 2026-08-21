@@ -11,18 +11,22 @@ import '../../core/widgets/accent_button.dart';
 import '../../core/widgets/glass_field.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/reveal.dart';
+import '../../core/widgets/section_header.dart';
 import '../../core/widgets/select_chip.dart';
 import '../../core/widgets/step_page.dart';
 import '../../data/auth_repository.dart';
 import '../../data/organization_repository.dart';
 import '../../data/profile_repository.dart';
 import '../../domain/brand_color.dart';
+import '../../domain/investor_kind.dart';
+import '../../domain/org_kind.dart';
 import '../../domain/organization.dart';
 import '../../domain/taxonomy.dart';
 import '../../domain/user_profile.dart';
 import '../../domain/user_role.dart';
 import '../organization/org_setup_pages.dart';
 import '../organization/organization_controller.dart';
+import '../organization/venture_setup_pages.dart';
 import '../profile/profile_controller.dart';
 
 /// Signup and setup in one flow: who you are, proof that the address is yours,
@@ -43,10 +47,13 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 enum _Step {
   identity,
   verify,
+  investorProfile,
   sectors,
   orgDetails,
   orgLinks,
   standPick,
+  ventureDetails,
+  ventureFocus,
   summary,
 }
 
@@ -68,6 +75,28 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _Step.standPick,
       _Step.summary,
     ],
+    // A founder publishes a card like the exhibitor does, but without a booth
+    // to claim — so the plan step drops out and the stage takes its place. No
+    // separate interests step either: the venture's own field is the answer,
+    // and asking the same question twice is how forms lose people.
+    UserRole.entrepreneur => const [
+      _Step.identity,
+      _Step.verify,
+      _Step.ventureDetails,
+      _Step.ventureFocus,
+      _Step.orgLinks,
+      _Step.summary,
+    ],
+    // An investor answers one question a visitor never gets asked: who they
+    // invest for. It sits before the sectors step because the fund is what
+    // gives that thesis a name.
+    UserRole.investor => const [
+      _Step.identity,
+      _Step.verify,
+      _Step.investorProfile,
+      _Step.sectors,
+      _Step.summary,
+    ],
     _ => const [_Step.identity, _Step.verify, _Step.sectors, _Step.summary],
   };
 
@@ -84,6 +113,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   // Exhibitor fields. Held here rather than in the organisation controller so
   // a half-typed address is not published on every keystroke.
+  //
+  // The founder shares most of them — the pitch is the description, the public
+  // address is the contact e-mail — and adds only the venture's own name, which
+  // the exhibitor types on the identity step instead.
+  final _ventureName = TextEditingController();
   final _address = TextEditingController();
   final _description = TextEditingController();
   final _contactEmail = TextEditingController();
@@ -91,6 +125,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _instagram = TextEditingController();
   final _linkedin = TextEditingController();
   final _phone = TextEditingController();
+
+  /// Investor fields. The fund's name is typed, the kind is picked, and neither
+  /// reaches the profile until the step is submitted.
+  final _company = TextEditingController();
+  InvestorKind? _investorKind;
 
   int _index = 0;
   bool _busy = false;
@@ -114,12 +153,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _firstName.text = profile.firstName;
     _lastName.text = profile.lastName;
     _email.text = profile.email;
+    _company.text = profile.companyName;
+    _investorKind = profile.investorKind;
 
     final organization = ref.read(organizationProvider).organization;
     if (organization != null) _fillOrgFields(organization);
   }
 
   void _fillOrgFields(Organization organization) {
+    _ventureName.text = organization.name;
     _address.text = organization.address;
     _description.text = organization.description;
     _contactEmail.text = organization.email;
@@ -145,6 +187,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _instagram,
       _linkedin,
       _phone,
+      _company,
+      _ventureName,
     ]) {
       controller.dispose();
     }
@@ -185,6 +229,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   bool get _isCorporate =>
       ref.read(profileProvider).role == UserRole.corporate;
+
+  bool get _isInvestor => ref.read(profileProvider).role == UserRole.investor;
+
+  bool get _isEntrepreneur =>
+      ref.read(profileProvider).role == UserRole.entrepreneur;
+
+  /// Whether this run ends by publishing a card rather than by entering the app.
+  bool get _publishesCard =>
+      ref.read(profileProvider).role?.publishesCard ?? false;
 
   /// The step after verification: interests for a visitor, the exhibitor's own
   /// details for a company.
@@ -242,8 +295,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         if (await _rejectRoleMismatch(stored?.role, role)) return;
       }
 
-      if (corporate) {
-        _beginOrganization(uid: auth.uid, name: first, email: email);
+      // Both card-publishing roles open a draft here, because the card is keyed
+      // by the uid and there was nothing to draft before the account existed.
+      // The exhibitor already typed its name on this step; the founder types
+      // the venture's name on the next one, so the draft starts unnamed.
+      if (role?.publishesCard ?? false) {
+        _beginOrganization(
+          uid: auth.uid,
+          name: corporate ? first : '',
+          email: email,
+          kind: corporate ? OrgKind.corporate : OrgKind.startup,
+        );
       }
 
       if (already) {
@@ -274,11 +336,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     required String? uid,
     required String name,
     required String email,
+    OrgKind kind = OrgKind.corporate,
   }) {
     if (uid == null) return;
     final orgController = ref.read(organizationProvider.notifier);
     if (ref.read(organizationProvider).organization != null) return;
-    orgController.start(id: uid, name: name, email: email);
+    orgController.start(id: uid, name: name, email: email, kind: kind);
     // The login address is the sensible default for the public one; the
     // exhibitor can replace it on the next step.
     if (_contactEmail.text.trim().isEmpty) _contactEmail.text = email;
@@ -345,11 +408,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       );
       _firstName.text = stored.firstName;
       _lastName.text = stored.lastName;
+      // An investor's fund and kind come back with the account too. Without
+      // this, a sign-in that resumes at the investor step would present an
+      // empty form for answers the profile already holds — and re-typing them
+      // is the fastest way to end up with two different fund names.
+      _company.text = stored.companyName;
+      _investorKind = stored.investorKind;
 
       // An exhibitor's account is only half the record; the card lives in its
       // own document and decides where this sign-in lands.
+      final resumedRole = stored.role ?? role;
       Organization? organization;
-      if ((stored.role ?? role) == UserRole.corporate && uid != null) {
+      if ((resumedRole?.publishesCard ?? false) && uid != null) {
         organization = await ref
             .read(organizationRepositoryProvider)
             .load(uid);
@@ -358,10 +428,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           ref.read(organizationProvider.notifier).hydrate(organization);
           _fillOrgFields(organization);
         } else {
+          final corporate = resumedRole == UserRole.corporate;
           _beginOrganization(
             uid: uid,
-            name: stored.firstName,
+            name: corporate ? stored.firstName : '',
             email: email,
+            kind: corporate ? OrgKind.corporate : OrgKind.startup,
           );
         }
       }
@@ -520,6 +592,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         _signInMode ? _submitSignIn() : _submitIdentity();
       case _Step.verify:
         _checkVerification(manual: true);
+      case _Step.investorProfile:
+        _submitInvestorProfile();
       case _Step.sectors:
         _goTo(_index + 1);
       case _Step.orgDetails:
@@ -528,9 +602,70 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         _submitOrgLinks();
       case _Step.standPick:
         _goTo(_index + 1);
+      case _Step.ventureDetails:
+        _submitVentureDetails();
+      case _Step.ventureFocus:
+        _submitVentureFocus();
       case _Step.summary:
-        _isCorporate ? _publish() : context.go('/home');
+        _publishesCard ? _publish() : context.go('/home');
     }
+  }
+
+  void _submitVentureDetails() {
+    final name = _ventureName.text.trim();
+    final pitch = _description.text.trim();
+    final contact = _contactEmail.text.trim();
+
+    if (name.isEmpty) {
+      setState(() => _error = 'Girişiminin adını gir.');
+      return;
+    }
+    if (pitch.isEmpty) {
+      setState(() => _error = 'Girişiminin ne yaptığını kısaca yaz.');
+      return;
+    }
+    if (!_emailPattern.hasMatch(contact)) {
+      setState(() => _error = 'Geçerli bir iletişim e-postası gir.');
+      return;
+    }
+
+    ref.read(organizationProvider.notifier).setVenture(
+      name: name,
+      description: pitch,
+      email: contact,
+    );
+    _goTo(_index + 1);
+  }
+
+  /// The venture's field is also the founder's own interest, so it is mirrored
+  /// onto the profile: that is what orders the programme on their home screen,
+  /// and it would be the same answer to a question asked twice.
+  void _submitVentureFocus() {
+    final organization = ref.read(organizationProvider).organization;
+    final sector = organization?.sectorLabel;
+    if (sector != null) {
+      ref.read(profileProvider.notifier).setSectors({sector});
+    }
+    _goTo(_index + 1);
+  }
+
+  void _submitInvestorProfile() {
+    final company = _company.text.trim();
+    final kind = _investorKind;
+
+    if (company.isEmpty) {
+      setState(() => _error = 'Yatırım yaptığın şirketin ya da fonun adını gir.');
+      return;
+    }
+    if (kind == null) {
+      setState(() => _error = 'Melek mi kurumsal mı, birini seç.');
+      return;
+    }
+
+    ref
+        .read(profileProvider.notifier)
+        .setInvestorProfile(companyName: company, investorKind: kind);
+    _goTo(_index + 1);
   }
 
   void _submitOrgDetails() {
@@ -613,9 +748,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (_busy) return false;
     return switch (_step) {
       _Step.identity || _Step.verify => true,
+      // Both answers are checked on submit rather than here, so the reason the
+      // step will not pass is spelled out instead of shown as a dead button.
+      _Step.investorProfile => true,
       _Step.sectors => profile.sectors.isNotEmpty,
-      _Step.orgDetails || _Step.orgLinks => true,
+      _Step.orgDetails || _Step.orgLinks || _Step.ventureDetails => true,
       _Step.standPick => orgState.organization?.standCode != null,
+      // Both are chip choices with nothing to type, so the button waits for
+      // them rather than complaining afterwards.
+      _Step.ventureFocus =>
+        orgState.organization?.stageLabel != null &&
+            orgState.organization?.sectorLabel != null,
       _Step.summary => true,
     };
   }
@@ -623,9 +766,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   String _primaryLabel() => switch (_step) {
     _Step.identity => _signInMode ? 'Giriş yap' : 'Hesabımı oluştur',
     _Step.verify => 'Doğrulamayı kontrol et',
-    _Step.sectors || _Step.orgDetails || _Step.orgLinks => 'Devam',
+    _Step.investorProfile ||
+    _Step.sectors ||
+    _Step.orgDetails ||
+    _Step.orgLinks ||
+    _Step.ventureDetails ||
+    _Step.ventureFocus => 'Devam',
     _Step.standPick => 'Standı onayla',
-    _Step.summary => _isCorporate ? 'Kartı yayına al' : 'Take Off\'a başla',
+    _Step.summary => _publishesCard ? 'Kartı yayına al' : 'Take Off\'a başla',
   };
 
   Widget _pageFor(_Step step, UserProfile profile, UserRole role) {
@@ -647,7 +795,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         notice: _notice,
         onResend: _busy ? null : _resend,
       ),
-      _Step.sectors => _SectorsPage(selected: profile.sectors),
+      _Step.investorProfile => _InvestorProfilePage(
+        company: _company,
+        selected: _investorKind,
+        enabled: !_busy,
+        onSelect: (kind) => setState(() {
+          _investorKind = kind;
+          _error = null;
+        }),
+      ),
+      _Step.sectors => _SectorsPage(selected: profile.sectors, role: role),
       _Step.orgDetails => OrgDetailsPage(
         address: _address,
         description: _description,
@@ -662,7 +819,14 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         enabled: !_busy,
       ),
       _Step.standPick => const StandPickPage(locked: false),
-      _Step.summary => role == UserRole.corporate
+      _Step.ventureDetails => VentureDetailsPage(
+        name: _ventureName,
+        pitch: _description,
+        contactEmail: _contactEmail,
+        enabled: !_busy,
+      ),
+      _Step.ventureFocus => const VentureFocusPage(),
+      _Step.summary => role.publishesCard
           ? const OrgSummaryPage()
           : _SummaryPage(profile: profile, role: role),
     };
@@ -739,10 +903,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         : _signInMode
         ? 'Ajandan ve alanların hesabınla birlikte geri gelir.'
         // An exhibitor is publishing, not just registering; promising privacy
-        // here and then printing the card on a QR would be a lie.
+        // here and then printing the card on a QR would be a lie. The founder
+        // is in the same position.
         : _isCorporate
         ? 'Kurum kartın fuar boyunca herkese açık olacak.'
+        : _isEntrepreneur
+        ? 'Girişim kartın fuar boyunca herkese açık olacak.'
         : 'Bilgilerin yalnızca senin hesabında tutulur.',
+    _Step.ventureDetails => 'Logo ve renk kartının üstünde görünür.',
+    _Step.ventureFocus => _focusHint(),
+    // The investor publishes no card, so this is the one place their fund's
+    // name is collected — and the request is where it becomes visible.
+    _Step.investorProfile =>
+      'Bu bilgiler yalnızca görüşme talebi gönderdiğin kurumlarla paylaşılır.',
     _Step.orgDetails => 'Logo ve renk stant kutunda da görünür.',
     _Step.orgLinks => 'Hepsini boş bırakıp geçebilirsin.',
     _Step.standPick =>
@@ -751,10 +924,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           : 'Onayladıktan sonra değiştirilemez.',
     _Step.verify => 'Bağlantıya tıkladığında bu ekran kendiliğinden geçer.',
     _Step.sectors => profile.sectors.isEmpty
-        ? 'En az bir alan seç'
+        ? _isInvestor
+              ? 'En az bir yatırım alanı seç'
+              : 'En az bir alan seç'
         : '${profile.sectors.length} alan seçildi',
     _Step.summary => '',
   };
+
+  /// Names whichever of the two chip answers is still missing, so the disabled
+  /// button is never a dead end.
+  String _focusHint() {
+    final organization = ref.read(organizationProvider).organization;
+    if (organization?.stageLabel == null) return 'Bir aşama seç';
+    if (organization?.sectorLabel == null) return 'Bir alan seç';
+    return '${organization!.stageLabel}  ·  ${organization.sectorLabel}';
+  }
 }
 
 class _OnboardingHeader extends StatelessWidget {
@@ -1191,20 +1375,158 @@ class _VerifyHint extends StatelessWidget {
   }
 }
 
+/// The investor's own step: who they invest for, and with what kind of money.
+///
+/// Deliberately two answers and no more. The portfolio's promise is that a
+/// founder can tell in one line whether the request in front of them is worth
+/// a slot, and a longer form here would buy nothing for that decision.
+class _InvestorProfilePage extends StatelessWidget {
+  const _InvestorProfilePage({
+    required this.company,
+    required this.selected,
+    required this.enabled,
+    required this.onSelect,
+  });
+
+  final TextEditingController company;
+  final InvestorKind? selected;
+  final bool enabled;
+  final ValueChanged<InvestorKind> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return StepPage(
+      title: 'Kimin adına yatırım yapıyorsun?',
+      subtitle:
+          'Görüşme talebi gönderdiğinde kurumlar bu iki bilgiyi görür: hangi '
+          'şirket ya da fondan geldiğini ve nasıl bir yatırımcı olduğunu.',
+      children: [
+        Reveal(
+          delay: const Duration(milliseconds: 160),
+          child: GlassField(
+            label: 'ŞİRKET / FON ADI',
+            hint: 'Örn. Ada Ventures',
+            controller: company,
+            enabled: enabled,
+            textCapitalization: TextCapitalization.words,
+            textInputAction: TextInputAction.done,
+            autofillHints: const [AutofillHints.organizationName],
+            helper: 'Kendi adına yatırım yapıyorsan adını yazabilirsin.',
+          ),
+        ),
+        const SizedBox(height: AppSpace.xl),
+        Reveal(
+          delay: const Duration(milliseconds: 220),
+          child: const SectionHeader('YATIRIMCI TİPİ'),
+        ),
+        const SizedBox(height: AppSpace.md),
+        for (var i = 0; i < InvestorKind.values.length; i++) ...[
+          if (i > 0) const SizedBox(height: AppSpace.md),
+          Reveal(
+            delay: Duration(milliseconds: 260 + i * 70),
+            child: _KindOption(
+              kind: InvestorKind.values[i],
+              selected: selected == InvestorKind.values[i],
+              onTap: () => onSelect(InvestorKind.values[i]),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// One investor type as a full-width row rather than a chip: the difference
+/// between the two is the explanation under the label, and a chip has no room
+/// for it.
+class _KindOption extends StatelessWidget {
+  const _KindOption({
+    required this.kind,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final InvestorKind kind;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
+    return PressableGlass(
+      onTap: onTap,
+      semanticLabel: '${kind.label}. ${kind.blurb}',
+      padding: const EdgeInsets.all(AppSpace.lg),
+      tint: selected ? accent : Colors.white,
+      tintOpacity: selected ? 0.18 : 0.06,
+      borderColor: selected
+          ? accent.withValues(alpha: 0.58)
+          : AppPalette.stroke,
+      glow: selected ? accent : null,
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.sm),
+              color: accent.withValues(alpha: selected ? 0.22 : 0.10),
+              border: Border.all(
+                color: accent.withValues(alpha: selected ? 0.46 : 0.22),
+              ),
+            ),
+            child: Icon(kind.icon, size: 19, color: accent),
+          ),
+          const SizedBox(width: AppSpace.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(kind.label, style: AppTypography.titleSmall),
+                const SizedBox(height: 3),
+                Text(kind.blurb, style: AppTypography.bodySmall),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpace.sm),
+          Icon(
+            selected
+                ? Icons.check_circle_rounded
+                : Icons.radio_button_unchecked_rounded,
+            size: 20,
+            color: selected ? accent : AppPalette.textTertiary,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectorsPage extends ConsumerWidget {
-  const _SectorsPage({required this.selected});
+  const _SectorsPage({required this.selected, required this.role});
 
   final Set<String> selected;
+
+  /// The same list means different things per audience: interests for a
+  /// visitor, an investment thesis for an investor. Only the framing changes.
+  final UserRole role;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(profileProvider.notifier);
+    final isInvestor = role == UserRole.investor;
 
     return StepPage(
-      title: 'Hangi alanlar ilgini çekiyor?',
-      subtitle:
-          'Ana sayfadaki program bu seçime göre sıralanır. Sonradan '
-          'profilinden değiştirebilirsin.',
+      title: isInvestor
+          ? 'Hangi alanlara yatırım yapıyorsun?'
+          : 'Hangi alanlar ilgini çekiyor?',
+      subtitle: isInvestor
+          ? 'Program ve görüşme talebi göndereceğin kurumlar bu seçime göre '
+                'öne çıkar. Sonradan profilinden değiştirebilirsin.'
+          : 'Ana sayfadaki program bu seçime göre sıralanır. Sonradan '
+                'profilinden değiştirebilirsin.',
       children: [
         Wrap(
           spacing: AppSpace.sm,
@@ -1263,11 +1585,27 @@ class _SummaryPage extends StatelessWidget {
             caption: role.goal,
           ),
         ),
+        // The investor's fund sits between the account and the thesis, because
+        // that is the order the introduction is read in: who you are, who you
+        // invest for, what you invest in.
+        if (role == UserRole.investor) ...[
+          const SizedBox(height: AppSpace.md),
+          Reveal(
+            delay: const Duration(milliseconds: 290),
+            child: _SummaryCard(
+              label: 'YATIRIMCI PROFİLİM',
+              icon: profile.investorKind?.icon ?? Icons.trending_up_rounded,
+              accent: role.accent,
+              values: [profile.companyName],
+              caption: profile.investorKind?.blurb,
+            ),
+          ),
+        ],
         const SizedBox(height: AppSpace.md),
         Reveal(
           delay: const Duration(milliseconds: 320),
           child: _SummaryCard(
-            label: 'ALANLARIM',
+            label: role == UserRole.investor ? 'YATIRIM ALANLARIM' : 'ALANLARIM',
             icon: Icons.category_rounded,
             accent: role.accent,
             values: profile.sectors.toList(),

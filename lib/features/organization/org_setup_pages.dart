@@ -19,6 +19,7 @@ import '../expo/expo_scene.dart';
 import '../expo/stand_logos.dart';
 import 'organization_controller.dart';
 import 'widgets/org_card.dart';
+import 'widgets/panel_picker.dart';
 
 /// The exhibitor's own details: where to find them, what they do, and the two
 /// things that make the booth theirs — the logo and the colour.
@@ -398,7 +399,7 @@ class StandPickPage extends ConsumerWidget {
         ),
         const SizedBox(height: AppSpace.lg),
         Reveal(
-          delay: const Duration(milliseconds: 220),
+          delay: const Duration(milliseconds: 200),
           child: GlassSurface(
             padding: const EdgeInsets.all(AppSpace.lg),
             tint: chosen == null ? Colors.white : accent,
@@ -441,6 +442,23 @@ class StandPickPage extends ConsumerWidget {
             ),
           ),
         ),
+
+        const SizedBox(height: AppSpace.xl),
+        Reveal(
+          delay: const Duration(milliseconds: 240),
+          child: const SectionHeader('SAHNE SUNUMU'),
+        ),
+        const SizedBox(height: AppSpace.sm),
+        Text(
+          organization?.panelLabel == null
+              ? 'Sahnede bir panel ya da sunum yapacaksan gününü ve saatini '
+                    'seç. İsteğe bağlı; ziyaretçilerin ana sayfasında görünür.'
+              : 'Sunumun ${organization!.panelLabel}. Değiştirmek için başka '
+                    'bir gün ya da saat seç.',
+          style: AppTypography.bodySmall,
+        ),
+        const SizedBox(height: AppSpace.md),
+        const PanelPicker(),
       ],
     );
   }
@@ -456,11 +474,14 @@ class OrgSummaryPage extends ConsumerWidget {
     final organization = ref.watch(organizationProvider).organization;
     if (organization == null) return const SizedBox.shrink();
 
+    final isStartup = organization.kind.isStartup;
+
     return StepPage(
       title: 'Kartın hazır.',
-      subtitle:
-          'Ziyaretçi standındaki karekodu okuttuğunda tam olarak bunu '
-          'görecek.',
+      subtitle: isStartup
+          ? 'Karekodunu okutan yatırımcı ve kurumlar tam olarak bunu görecek.'
+          : 'Ziyaretçi standındaki karekodu okuttuğunda tam olarak bunu '
+                'görecek.',
       children: [
         Reveal(
           delay: const Duration(milliseconds: 160),
@@ -469,9 +490,44 @@ class OrgSummaryPage extends ConsumerWidget {
         const SizedBox(height: AppSpace.lg),
         Reveal(
           delay: const Duration(milliseconds: 220),
-          child: _PublishWarning(standCode: organization.standCode),
+          child: isStartup
+              ? const _StartupPublishNote()
+              : _PublishWarning(standCode: organization.standCode),
         ),
       ],
+    );
+  }
+}
+
+/// A startup claims nothing when it publishes, so there is no warning to give —
+/// what it needs instead is the next step, which is opening meeting hours.
+class _StartupPublishNote extends StatelessWidget {
+  const _StartupPublishNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
+    return GlassSurface(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      tint: accent,
+      tintOpacity: 0.10,
+      borderColor: accent.withValues(alpha: 0.26),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.schedule_rounded, size: 18, color: accent),
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Text(
+              'Yayına aldıktan sonra girişim sekmesinden görüşme saatlerini aç: '
+              'yatırımcılar ancak açtığın saatler için senden randevu '
+              'isteyebilir. Kartın her bilgisini sonradan düzenleyebilirsin.',
+              style: AppTypography.bodySmall,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -12,7 +12,6 @@ import '../../domain/organization.dart';
 import '../../domain/qr_payload.dart';
 import 'org_edit_screen.dart';
 import 'organization_controller.dart';
-import 'widgets/channel_edit_sheet.dart';
 import 'widgets/org_card.dart';
 
 /// The exhibitor's own tab: the code visitors scan, and the card they get.
@@ -47,8 +46,15 @@ class OrgCardScreen extends ConsumerWidget {
             Reveal(
               delay: const Duration(milliseconds: 80),
               child: Text(
-                'Bu karekodu standına koy. Okutan herkes aşağıdaki kartı '
-                'görür ve ajandasına ekleyebilir.',
+                // An exhibitor's code is printed and left standing on a
+                // counter; a founder's is held up on a phone, in front of one
+                // person at a time. Same code, two different instructions.
+                organization.kind.isStartup
+                    ? 'Bu karekodu göster. Okutan yatırımcı ve kurumlar '
+                          'aşağıdaki kartı görür ve senden görüşme talep '
+                          'edebilir.'
+                    : 'Bu karekodu standına koy. Okutan herkes aşağıdaki kartı '
+                          'görür ve ajandasına ekleyebilir.',
                 style: AppTypography.bodyLarge,
               ),
             ),
@@ -76,13 +82,7 @@ class OrgCardScreen extends ConsumerWidget {
             const SizedBox(height: AppSpace.lg),
             Reveal(
               delay: const Duration(milliseconds: 240),
-              child: OrgCard(
-                organization: organization,
-                // The pencil beside each channel edits that one line, so a
-                // wrong handle is fixed where it is spotted.
-                onEditChannel: (channel) =>
-                    showChannelEditSheet(context, channel: channel),
-              ),
+              child: OrgCard(organization: organization),
             ),
           ],
         ),
@@ -139,10 +139,12 @@ class _QrPlate extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'STAND ${organization.standCode ?? '—'}',
+                      organization.cardEyebrow ?? organization.badgeLabel,
                       style: AppTypography.eyebrow.copyWith(
                         color: organization.color,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 3),
                     Text(

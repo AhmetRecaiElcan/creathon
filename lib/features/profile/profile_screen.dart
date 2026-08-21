@@ -7,17 +7,21 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/widgets/accent_button.dart';
+import '../../core/widgets/glass_field.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/reveal.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/select_chip.dart';
 import '../../data/auth_repository.dart';
+import '../../domain/investor_kind.dart';
 import '../../domain/profile_wallpaper.dart';
 import '../../domain/taxonomy.dart';
 import '../../domain/user_profile.dart';
 import '../../domain/user_role.dart';
 import '../agenda/agenda_providers.dart';
 import '../home/home_providers.dart';
+import '../meetings/meetings_controller.dart';
 import 'account_deletion.dart';
 import 'profile_controller.dart';
 
@@ -131,7 +135,15 @@ class ProfileScreen extends ConsumerWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _Counter(value: savedCount, label: 'AJANDAM'),
+                        // An investor's first number is the one they moved:
+                        // requests sent. A visitor's is the day they built.
+                        if (role == UserRole.investor)
+                          _Counter(
+                            value: ref.watch(meetingsProvider).length,
+                            label: 'GÖRÜŞME',
+                          )
+                        else
+                          _Counter(value: savedCount, label: 'AJANDAM'),
                         _Counter(
                           value: profile.sectors.length,
                           label: 'ALANIM',
@@ -141,6 +153,34 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+
+                // The investor's fund and kind, editable in place. They are on
+                // every request this account sends, so they belong with the
+                // identity rather than buried under settings.
+                if (role == UserRole.investor) ...[
+                  const SizedBox(height: AppSpace.xl),
+                  Reveal(
+                    delay: const Duration(milliseconds: 160),
+                    child: const SectionHeader('YATIRIMCI PROFİLİM'),
+                  ),
+                  const SizedBox(height: AppSpace.md),
+                  _InvestorCard(
+                    profile: profile,
+                    onEditCompany: () => showModalBottomSheet<void>(
+                      context: context,
+                      backgroundColor: Colors.transparent,
+                      isScrollControlled: true,
+                      builder: (_) => _CompanySheet(
+                        initial: profile.companyName,
+                        onSave: (name) => controller.setInvestorProfile(
+                          companyName: name,
+                        ),
+                      ),
+                    ),
+                    onSelectKind: (kind) =>
+                        controller.setInvestorProfile(investorKind: kind),
+                  ),
+                ],
 
                 const SizedBox(height: AppSpace.xl),
                 Reveal(
@@ -157,7 +197,9 @@ class ProfileScreen extends ConsumerWidget {
                 Reveal(
                   delay: const Duration(milliseconds: 220),
                   child: SectionHeader(
-                    'ALANLARIM',
+                    role == UserRole.investor
+                        ? 'YATIRIM ALANLARIM'
+                        : 'ALANLARIM',
                     trailing: Text(
                       '${profile.sectors.length} seçili',
                       style: AppTypography.bodySmall.copyWith(fontSize: 12),
@@ -194,9 +236,11 @@ class ProfileScreen extends ConsumerWidget {
                     final confirmed = await showDeleteAccountDialog(
                       context,
                       title: 'Hesabı sil',
-                      message:
-                          'Profilin, ajandan ve beğendiğin kurumlar silinir. '
-                          'Bu geri alınamaz.',
+                      message: role == UserRole.investor
+                          ? 'Profilin, gönderdiğin görüşme talepleri ve takip '
+                                'listen silinir. Bu geri alınamaz.'
+                          : 'Profilin, ajandan ve beğendiğin kurumlar silinir. '
+                                'Bu geri alınamaz.',
                     );
                     if (confirmed != true || !context.mounted) return;
                     try {
@@ -290,8 +334,11 @@ class _ProfileCover extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
+                            // Falls back to the audience rather than to
+                            // "Ziyaretçi", which would be the wrong word on
+                            // three of the four portfolios.
                             profile.fullName.isEmpty
-                                ? 'Ziyaretçi'
+                                ? role.label
                                 : profile.fullName,
                             style: AppTypography.titleLarge,
                             maxLines: 1,
@@ -501,6 +548,176 @@ class _PhotoOption extends StatelessWidget {
             const SizedBox(width: AppSpace.lg),
             Text(label, style: AppTypography.titleSmall.copyWith(color: tint)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The investor's fund and kind, both editable where they are read.
+///
+/// The kind is two taps rather than a hidden form: switching from angel to
+/// institutional is a real change of what a founder is being offered, so it
+/// should cost one deliberate tap and be visible at a glance the rest of the
+/// time.
+class _InvestorCard extends StatelessWidget {
+  const _InvestorCard({
+    required this.profile,
+    required this.onEditCompany,
+    required this.onSelectKind,
+  });
+
+  final UserProfile profile;
+  final VoidCallback onEditCompany;
+  final ValueChanged<InvestorKind> onSelectKind;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
+    return GlassSurface(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ŞİRKET / FON', style: AppTypography.eyebrow),
+                    const SizedBox(height: 3),
+                    Text(
+                      profile.companyName.isEmpty
+                          ? 'Belirtilmedi'
+                          : profile.companyName,
+                      style: AppTypography.titleMedium,
+                      maxLines: 2,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpace.md),
+              GhostIconButton(
+                icon: Icons.edit_rounded,
+                tooltip: 'Şirket adını düzenle',
+                onPressed: onEditCompany,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.lg),
+          Text('YATIRIMCI TİPİ', style: AppTypography.eyebrow),
+          const SizedBox(height: AppSpace.md),
+          Wrap(
+            spacing: AppSpace.sm,
+            runSpacing: AppSpace.sm,
+            children: [
+              for (final kind in InvestorKind.values)
+                SelectChip(
+                  label: kind.label,
+                  icon: kind.icon,
+                  selected: profile.investorKind == kind,
+                  onTap: () => onSelectKind(kind),
+                ),
+            ],
+          ),
+          if (profile.investorKind != null) ...[
+            const SizedBox(height: AppSpace.md),
+            Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 14, color: accent),
+                const SizedBox(width: AppSpace.sm),
+                Expanded(
+                  child: Text(
+                    'Talep gönderdiğin kurumlar bu bilgiyi görür.',
+                    style: AppTypography.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One field, one button. A sheet rather than an inline text field so the name
+/// is either changed on purpose or left exactly as it was.
+class _CompanySheet extends StatefulWidget {
+  const _CompanySheet({required this.initial, required this.onSave});
+
+  final String initial;
+  final ValueChanged<String> onSave;
+
+  @override
+  State<_CompanySheet> createState() => _CompanySheetState();
+}
+
+class _CompanySheetState extends State<_CompanySheet> {
+  late final _controller = TextEditingController(text: widget.initial);
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final name = _controller.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Bir şirket ya da fon adı gir.');
+      return;
+    }
+    widget.onSave(name);
+    Navigator.of(context).maybePop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: AppSpace.lg,
+          right: AppSpace.lg,
+          top: AppSpace.lg,
+          bottom: AppSpace.lg + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: GlassSurface(
+          padding: const EdgeInsets.all(AppSpace.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('YATIRIMCI PROFİLİM', style: AppTypography.eyebrow),
+              const SizedBox(height: AppSpace.md),
+              GlassField(
+                label: 'ŞİRKET / FON ADI',
+                hint: 'Örn. Ada Ventures',
+                controller: _controller,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _save(),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: AppSpace.sm),
+                Text(
+                  _error!,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppPalette.danger,
+                  ),
+                ),
+              ],
+              const SizedBox(height: AppSpace.lg),
+              AccentButton(
+                label: 'Kaydet',
+                icon: Icons.check_rounded,
+                onPressed: _save,
+              ),
+            ],
+          ),
         ),
       ),
     );

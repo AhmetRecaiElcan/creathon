@@ -11,6 +11,8 @@ import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/section_header.dart';
 import '../../data/meeting_repository.dart';
 import '../../domain/organization.dart';
+import '../../domain/user_role.dart';
+import '../profile/profile_controller.dart';
 import 'meetings_controller.dart';
 
 /// Asks an exhibitor for one of the slots they opened.
@@ -109,6 +111,7 @@ class _MeetingRequestSheetState
     final slots = ref.watch(
       organizationSlotsProvider(widget.organization.id),
     );
+    final profile = ref.watch(profileProvider);
 
     return SafeArea(
       child: Padding
@@ -122,7 +125,11 @@ class _MeetingRequestSheetState
         child: GlassSurface(
           padding: const EdgeInsets.all(AppSpace.lg),
           child: _sent
-              ? _Sent(accent: accent, slot: _chosen)
+              ? _Sent(
+                  accent: accent,
+                  slot: _chosen,
+                  isInvestor: profile.role == UserRole.investor,
+                )
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,6 +142,31 @@ class _MeetingRequestSheetState
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+
+                    // What the exhibitor will see on the request. Shown before
+                    // it is sent, because the sender should never be surprised
+                    // by how they were introduced.
+                    if (profile.hasInvestorProfile) ...[
+                      const SizedBox(height: AppSpace.md),
+                      Row(
+                        children: [
+                          Icon(
+                            profile.investorKind!.icon,
+                            size: 14,
+                            color: accent,
+                          ),
+                          const SizedBox(width: AppSpace.sm),
+                          Expanded(
+                            child: Text(
+                              '${profile.investorLine} olarak gönderilecek.',
+                              style: AppTypography.bodySmall,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: AppSpace.lg),
 
                     if (slots.isEmpty)
@@ -271,10 +303,18 @@ class _SlotChip extends StatelessWidget {
 }
 
 class _Sent extends StatelessWidget {
-  const _Sent({required this.accent, required this.slot});
+  const _Sent({
+    required this.accent,
+    required this.slot,
+    this.isInvestor = false,
+  });
 
   final Color accent;
   final OrganizationSlot? slot;
+
+  /// Decides which tab the confirmation points at: the investor's requests live
+  /// under GÖRÜŞMELER, a visitor's meetings on their agenda.
+  final bool isInvestor;
 
   @override
   Widget build(BuildContext context) {
@@ -287,8 +327,12 @@ class _Sent extends StatelessWidget {
         Text('Talebin gönderildi.', style: AppTypography.titleMedium),
         const SizedBox(height: AppSpace.xs),
         Text(
-          '${slot?.label ?? ''} toplantın ana sayfanda ve ajandanda '
-          'görünüyor. Kurum onayladığında durumu güncellenecek.',
+          isInvestor
+              ? '${slot?.label ?? ''} talebin ana sayfanda ve GÖRÜŞMELER '
+                    'sekmesinde görünüyor. Kurum onayladığında durumu '
+                    'güncellenecek.'
+              : '${slot?.label ?? ''} toplantın ana sayfanda ve ajandanda '
+                    'görünüyor. Kurum onayladığında durumu güncellenecek.',
           style: AppTypography.bodySmall,
         ),
       ],

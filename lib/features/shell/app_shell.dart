@@ -16,9 +16,9 @@ class AppShell extends ConsumerWidget {
 
   final StatefulNavigationShell navigationShell;
 
-  /// The third tab is where the two audiences diverge: a visitor collects a
-  /// day, an exhibitor publishes a card. Same four slots either way, so the
-  /// shell and its branches stay one shape.
+  /// The third tab is where the audiences diverge: a visitor collects a day, an
+  /// exhibitor publishes a card, an investor works a list of requests. Same
+  /// four slots either way, so the shell and its branches stay one shape.
   static List<NavDestination> destinationsFor(UserRole? role) => [
     const NavDestination(
       label: 'ANA SAYFA',
@@ -30,11 +30,17 @@ class AppShell extends ConsumerWidget {
       icon: Icons.view_in_ar_outlined,
       activeIcon: Icons.view_in_ar_rounded,
     ),
-    if (role == UserRole.corporate)
+    if (role?.publishesCard ?? false)
       const NavDestination(
         label: 'KARTIM',
         icon: Icons.qr_code_2_outlined,
         activeIcon: Icons.qr_code_2_rounded,
+      )
+    else if (role == UserRole.investor)
+      const NavDestination(
+        label: 'GÖRÜŞMELER',
+        icon: Icons.handshake_outlined,
+        activeIcon: Icons.handshake_rounded,
       )
     else
       const NavDestination(

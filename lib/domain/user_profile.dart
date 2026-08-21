@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'investor_kind.dart';
 import 'profile_wallpaper.dart';
 import 'user_role.dart';
 
@@ -17,6 +18,8 @@ class UserProfile {
     this.lastName = '',
     this.email = '',
     this.emailVerified = false,
+    this.companyName = '',
+    this.investorKind,
     this.wallpaper = ProfileWallpaper.aurora,
     this.photoBase64,
     this.sectors = const {},
@@ -36,6 +39,17 @@ class UserProfile {
 
   /// Mirrors `FirebaseUser.emailVerified` at the last refresh.
   final bool emailVerified;
+
+  /// The fund or company the person represents.
+  ///
+  /// An investor is two things at once — a person a founder shakes hands with,
+  /// and an institution whose name decides whether the meeting is worth taking
+  /// — so both are collected, and the company travels with every request they
+  /// send. Empty for the audiences that come as themselves.
+  final String companyName;
+
+  /// Angel or institutional. Null for every role but the investor.
+  final InvestorKind? investorKind;
 
   final ProfileWallpaper wallpaper;
 
@@ -76,6 +90,19 @@ class UserProfile {
     return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
   }
 
+  /// Everything the investor step asks for. A request that does not say which
+  /// fund it came from, or what kind of money is behind it, arrives as an
+  /// anonymous ask — which is the one thing this portfolio exists to avoid.
+  bool get hasInvestorProfile =>
+      companyName.trim().isNotEmpty && investorKind != null;
+
+  /// How an investor introduces themselves in one line: `Ada Ventures ·
+  /// Kurumsal`. Empty for the roles that carry neither.
+  String get investorLine => [
+    if (companyName.trim().isNotEmpty) companyName.trim(),
+    if (investorKind != null) investorKind!.shortLabel,
+  ].join('  ·  ');
+
   /// The name is entered before the account is created, so both halves being
   /// present is what makes the identity step complete.
   bool get hasIdentity =>
@@ -86,8 +113,14 @@ class UserProfile {
   /// Whether the tab shell may be entered. Interests are part of the bar
   /// because the home feed is built from them — landing on an empty feed would
   /// read as a broken app rather than as an unanswered question.
-  bool get isOnboarded =>
-      role != null && hasIdentity && emailVerified && sectors.isNotEmpty;
+  bool get isOnboarded {
+    if (role == null || !hasIdentity || !emailVerified) return false;
+    if (sectors.isEmpty) return false;
+    // The investor passes one extra gate: without the fund and the kind, the
+    // requests this account exists to send could not identify themselves.
+    if (role == UserRole.investor && !hasInvestorProfile) return false;
+    return true;
+  }
 
   UserProfile copyWith({
     UserRole? role,
@@ -96,6 +129,8 @@ class UserProfile {
     String? lastName,
     String? email,
     bool? emailVerified,
+    String? companyName,
+    InvestorKind? investorKind,
     ProfileWallpaper? wallpaper,
     String? photoBase64,
     Set<String>? sectors,
@@ -112,6 +147,8 @@ class UserProfile {
       lastName: lastName ?? this.lastName,
       email: email ?? this.email,
       emailVerified: emailVerified ?? this.emailVerified,
+      companyName: companyName ?? this.companyName,
+      investorKind: investorKind ?? this.investorKind,
       wallpaper: wallpaper ?? this.wallpaper,
       photoBase64: clearPhoto ? null : (photoBase64 ?? this.photoBase64),
       sectors: sectors ?? this.sectors,
@@ -127,6 +164,8 @@ class UserProfile {
     'lastName': lastName,
     'email': email,
     'emailVerified': emailVerified,
+    'companyName': companyName,
+    'investorKind': investorKind?.id,
     'wallpaper': wallpaper.id,
     'photoBase64': photoBase64,
     'sectors': sectors.toList(growable: false),
@@ -142,6 +181,8 @@ class UserProfile {
       lastName: (map['lastName'] as String?) ?? '',
       email: (map['email'] as String?) ?? '',
       emailVerified: (map['emailVerified'] as bool?) ?? false,
+      companyName: (map['companyName'] as String?) ?? '',
+      investorKind: InvestorKind.fromId(map['investorKind'] as String?),
       wallpaper: ProfileWallpaper.fromId(map['wallpaper'] as String?),
       photoBase64: map['photoBase64'] as String?,
       sectors: {...?(map['sectors'] as List?)?.whereType<String>()},

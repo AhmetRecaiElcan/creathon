@@ -7,16 +7,22 @@ import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/reveal.dart';
 import '../../core/widgets/section_header.dart';
 import '../../data/event_repository.dart';
+import '../../data/organization_repository.dart';
 import '../../domain/event_session.dart';
 import '../../domain/meeting.dart';
+import '../../domain/organization.dart';
 import '../../domain/user_profile.dart';
 import '../../domain/user_role.dart';
 import '../meetings/meetings_controller.dart';
+import '../meetings/new_request_action.dart';
+import '../meetings/org_picker_sheet.dart';
 import '../organization/organization_controller.dart';
+import '../organization/widgets/org_card_sheet.dart';
 import '../profile/profile_controller.dart';
 import '../scan/scan_screen.dart';
 import 'home_providers.dart';
 import 'widgets/meeting_card.dart';
+import 'widgets/panel_row.dart';
 import 'widgets/session_card.dart';
 
 /// The visitor's front page: the published programme, ordered by what they
@@ -40,12 +46,21 @@ class HomeScreen extends ConsumerWidget {
         .toList(growable: false);
     final loading = ref.watch(eventsStreamProvider).isLoading;
 
-    final meetings = ref.watch(meetingsProvider);
+    // Two directions, not one list: a founder answers investors *and* asks
+    // companies, and those are different sections with different controls.
+    final hosted = ref.watch(hostedMeetingsProvider);
+    final sent = ref.watch(sentMeetingsProvider);
+
     final isCorporate = role == UserRole.corporate;
-    final hasHours = isCorporate
-        ? (ref.watch(organizationProvider).organization?.availability.isNotEmpty ??
-              false)
-        : false;
+    final publishesCard = role.publishesCard;
+    final panels = isCorporate
+        ? const <Organization>[]
+        : ref.watch(panelOrganizationsProvider);
+    final ownOrg = publishesCard
+        ? ref.watch(organizationProvider).organization
+        : null;
+    final hasHours = ownOrg?.availability.isNotEmpty ?? false;
+    final ownPanel = ownOrg?.panelLabel == null ? null : ownOrg;
 
     // Read once so every card in this build agrees on what "now" means.
     final now = DateTime.now();
@@ -102,50 +117,142 @@ class HomeScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpace.xxl),
 
-            // An exhibitor with no requests yet needs to know why, and where
-            // to go about it — an empty screen would read as a broken one.
-            if (isCorporate && meetings.isEmpty)
+            // The exhibitor's own talk, so publishing it is visibly confirmed
+            // rather than something they have to go and check.
+            if (isCorporate && ownPanel != null) ...[
+              Reveal(
+                delay: const Duration(milliseconds: 180),
+                child: const SectionHeader('SAHNE SUNUMUM'),
+              ),
+              const SizedBox(height: AppSpace.lg),
               Reveal(
                 delay: const Duration(milliseconds: 200),
-                child: _NoRequests(hasHours: hasHours),
+                child: PanelRow(
+                  organization: ownPanel,
+                  onTap: () => showOrgCardSheet(
+                    context,
+                    organizationId: ownPanel.id,
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpace.xl),
+            ],
+
+            // Nothing on either side yet. Each audience is missing something
+            // different, and an empty screen would read as a broken one.
+            if (hosted.isEmpty && sent.isEmpty && role != UserRole.visitor)
+              Reveal(
+                delay: const Duration(milliseconds: 220),
+                child: _NoMeetings(role: role, hasHours: hasHours),
               ),
 
-            // Meetings come first: a time someone is expecting you outranks a
-            // programme you are still browsing.
-            if (meetings.isNotEmpty) ...[
+            // The founder has no requests tab of their own, so the way into a
+            // company's open hours lives on their home screen — above the
+            // lists, because it is the thing they came to do.
+            if (role == UserRole.entrepreneur) ...[
+              if (hosted.isEmpty && sent.isEmpty)
+                const SizedBox(height: AppSpace.md),
+              Reveal(
+                delay: const Duration(milliseconds: 230),
+                child: NewRequestAction(
+                  onTap: () => showOrgPickerSheet(context),
+                  title: 'Görüşme talebi gönder',
+                  subtitle:
+                      'Saatini açan kurumları ve girişimleri listele, bir saat '
+                      'seç.',
+                ),
+              ),
+              const SizedBox(height: AppSpace.xl),
+            ],
+
+            // Requests addressed to this account come first: somebody is
+            // waiting on an answer, which outranks anything else on the page.
+            if (hosted.isNotEmpty) ...[
               Reveal(
                 delay: const Duration(milliseconds: 200),
                 child: SectionHeader(
-                  isCorporate ? 'TOPLANTI TALEPLERİ' : 'TOPLANTILARIM',
+                  'TOPLANTI TALEPLERİ',
                   trailing: Text(
-                    '${meetings.length} toplantı',
+                    '${hosted.length} talep',
                     style: AppTypography.bodySmall.copyWith(fontSize: 12),
                   ),
                 ),
               ),
               const SizedBox(height: AppSpace.lg),
-              for (var i = 0; i < meetings.length; i++)
+              for (var i = 0; i < hosted.length; i++)
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpace.md),
                   child: Reveal(
                     delay: Duration(milliseconds: 240 + i * 60),
                     child: MeetingCard(
-                      meeting: meetings[i],
-                      asHost: isCorporate,
-                      // Only the exhibitor answers, and only a request that is
-                      // still open has anything to answer.
-                      onAccept:
-                          isCorporate &&
-                              meetings[i].status == MeetingStatus.requested
+                      meeting: hosted[i],
+                      asHost: true,
+                      // Only a request that is still open has anything to
+                      // answer; a confirmed one can still be called off.
+                      onAccept: hosted[i].status == MeetingStatus.requested
                           ? () => ref
                                 .read(meetingsControllerProvider)
-                                .respond(meetings[i], MeetingStatus.confirmed)
+                                .respond(hosted[i], MeetingStatus.confirmed)
                           : null,
-                      onDecline: isCorporate
-                          ? () => ref
-                                .read(meetingsControllerProvider)
-                                .respond(meetings[i], MeetingStatus.declined)
-                          : null,
+                      onDecline: () => ref
+                          .read(meetingsControllerProvider)
+                          .respond(hosted[i], MeetingStatus.declined),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: AppSpace.xl),
+            ],
+
+            // Then the ones this account is waiting on.
+            if (sent.isNotEmpty) ...[
+              Reveal(
+                delay: const Duration(milliseconds: 210),
+                child: SectionHeader(
+                  role.canRequestMeetings ? 'GÖRÜŞMELERİM' : 'TOPLANTILARIM',
+                  trailing: Text(
+                    '${sent.length} kayıt',
+                    style: AppTypography.bodySmall.copyWith(fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpace.lg),
+              for (var i = 0; i < sent.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpace.md),
+                  child: Reveal(
+                    delay: Duration(milliseconds: 250 + i * 60),
+                    child: MeetingCard(meeting: sent[i]),
+                  ),
+                ),
+              const SizedBox(height: AppSpace.xl),
+            ],
+
+            // Stage talks the exhibitors booked themselves. Kept separate from
+            // the organiser's programme because that is what they are: a
+            // company's own session, not a curated one.
+            if (!isCorporate && panels.isNotEmpty) ...[
+              Reveal(
+                delay: const Duration(milliseconds: 220),
+                child: SectionHeader(
+                  'SAHNE SUNUMLARI',
+                  trailing: Text(
+                    '${panels.length} sunum',
+                    style: AppTypography.bodySmall.copyWith(fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpace.lg),
+              for (var i = 0; i < panels.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpace.md),
+                  child: Reveal(
+                    delay: Duration(milliseconds: 260 + i * 55),
+                    child: PanelRow(
+                      organization: panels[i],
+                      onTap: () => showOrgCardSheet(
+                        context,
+                        organizationId: panels[i].id,
+                      ),
                     ),
                   ),
                 ),
@@ -347,45 +454,69 @@ class _EmptyProgramme extends StatelessWidget {
     );
   }
 }
-
-/// The exhibitor's home before anyone has asked for a meeting.
+/// The home screen before this account has a single meeting on it.
 ///
-/// Splits the two reasons it can be empty, because they need opposite
-/// responses: no hours open is something to go and fix, no requests yet is
-/// something to wait for.
-class _NoRequests extends StatelessWidget {
-  const _NoRequests({required this.hasHours});
+/// One widget for three audiences because the shape of the answer is the same —
+/// icon, sentence, what to do next — while the substance is not: the exhibitor
+/// waits (or has no hours open yet), the investor and the founder act, and the
+/// founder acts in two directions at once.
+class _NoMeetings extends StatelessWidget {
+  const _NoMeetings({required this.role, required this.hasHours});
 
+  final UserRole role;
+
+  /// Only meaningful for the roles that receive requests. No hours open is
+  /// something to go and fix; no requests yet is something to wait for.
   final bool hasHours;
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+
+    final (icon, title, body) = switch (role) {
+      UserRole.corporate => (
+        hasHours
+            ? Icons.mark_email_unread_outlined
+            : Icons.event_busy_rounded,
+        hasHours ? 'Henüz talep yok.' : 'Henüz saat açmadın.',
+        hasHours
+            ? 'Standındaki karekodu okutan ziyaretçiler açtığın saatler için '
+                  'talep gönderdiğinde burada görünecek.'
+            : 'Profil sekmesinden toplantı saatlerini aç; ziyaretçiler ancak o '
+                  'zaman senden randevu isteyebilir.',
+      ),
+      UserRole.entrepreneur => (
+        hasHours ? Icons.handshake_outlined : Icons.event_busy_rounded,
+        hasHours ? 'Henüz görüşmen yok.' : 'Henüz saat açmadın.',
+        hasHours
+            ? 'Kartını okutan yatırımcılar senden randevu isteyebilir. Sen de '
+                  'fuar alanındaki kurumlara görüşme talebi gönderebilirsin.'
+            : 'GİRİŞİM sekmesinden görüşme saatlerini aç; yatırımcılar ancak o '
+                  'zaman senden randevu isteyebilir. Kurumlara talep göndermek '
+                  'için saat açman gerekmez.',
+      ),
+      _ => (
+        Icons.handshake_outlined,
+        'Henüz görüşmen yok.',
+        'GÖRÜŞMELER sekmesinden bir kuruma talep gönder; fuar alanındaki '
+            'standlara dokunarak ya da karekod okutarak da ulaşabilirsin.',
+      ),
+    };
+
     return GlassSurface(
       padding: const EdgeInsets.all(AppSpace.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            hasHours
-                ? Icons.mark_email_unread_outlined
-                : Icons.event_busy_rounded,
+            icon,
             size: 22,
-            color: AppPalette.textTertiary,
+            color: role == UserRole.corporate ? AppPalette.textTertiary : accent,
           ),
           const SizedBox(height: AppSpace.md),
-          Text(
-            hasHours ? 'Henüz talep yok.' : 'Henüz saat açmadın.',
-            style: AppTypography.titleSmall,
-          ),
+          Text(title, style: AppTypography.titleSmall),
           const SizedBox(height: AppSpace.xs),
-          Text(
-            hasHours
-                ? 'Standındaki karekodu okutan ziyaretçiler açtığın saatler '
-                      'için talep gönderdiğinde burada görünecek.'
-                : 'Profil sekmesinden toplantı saatlerini aç; ziyaretçiler '
-                      'ancak o zaman senden randevu isteyebilir.',
-            style: AppTypography.bodySmall,
-          ),
+          Text(body, style: AppTypography.bodySmall),
         ],
       ),
     );

@@ -7,7 +7,9 @@ import 'package:creathon/data/meeting_repository.dart';
 import 'package:creathon/data/organization_repository.dart';
 import 'package:creathon/data/profile_repository.dart';
 import 'package:creathon/domain/event_session.dart';
+import 'package:creathon/domain/investor_kind.dart';
 import 'package:creathon/domain/meeting.dart';
+import 'package:creathon/domain/org_kind.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
 import 'package:creathon/domain/user_role.dart';
@@ -198,7 +200,14 @@ class FakeOrganizationRepository implements OrganizationRepository {
   @override
   Future<void> publish(Organization organization) async {
     final code = organization.standCode;
-    if (code == null) throw StateError('stand yok');
+    if (code == null) {
+      // A startup publishes without a booth, so there is nothing to lock and
+      // nothing that can have been taken first — the same split the real
+      // repository makes.
+      if (organization.kind != OrgKind.startup) throw StateError('stand yok');
+      await update(organization);
+      return;
+    }
     final taken = _organizations.any(
       (other) => other.standCode == code && other.id != organization.id,
     );
@@ -394,6 +403,86 @@ Future<void> completeOnboarding(
   // The link in the mail gets followed: the next poll finds it verified.
   auth.verified = true;
   await tester.tap(find.text('Doğrulamayı kontrol et'));
+  await advance(tester, frames: 10);
+
+  for (final sector in sectors) {
+    await tester.tap(find.text(sector));
+    await advance(tester, frames: 6);
+  }
+  await tester.tap(find.text('Devam'));
+  await advance(tester, frames: 10);
+
+  await tester.tap(find.text('Take Off\'a başla'));
+  await advance(tester);
+}
+
+/// Runs the whole founder signup — identity, verification, the venture, its
+/// stage and field, the optional links — and publishes the card, leaving the
+/// tester on the home tab.
+Future<void> completeEntrepreneurOnboarding(
+  WidgetTester tester, {
+  required FakeAuthRepository auth,
+  String venture = 'Nexora Robotik',
+  String pitch = 'İnsansız kara araçları için otonom seyir yazılımı.',
+  String contactEmail = 'iletisim@nexora.com',
+  String stage = 'Seed',
+  String sector = 'Yapay Zekâ',
+}) async {
+  await chooseRole(tester, UserRole.entrepreneur);
+  await submitIdentity(tester);
+
+  auth.verified = true;
+  await tester.tap(find.text('Doğrulamayı kontrol et'));
+  await advance(tester, frames: 10);
+
+  // The venture step: name, pitch and the public address.
+  final fields = find.byType(TextField);
+  await tester.enterText(fields.at(0), venture);
+  await tester.enterText(fields.at(1), pitch);
+  await tester.enterText(fields.at(2), contactEmail);
+  await advance(tester, frames: 4);
+  await tester.tap(find.text('Devam'));
+  await advance(tester, frames: 10);
+
+  // Stage and field, both required before the step will pass.
+  await tester.tap(find.text(stage));
+  await advance(tester, frames: 6);
+  await scrollTo(tester, find.text(sector));
+  await tester.tap(find.text(sector));
+  await advance(tester, frames: 6);
+  await tester.tap(find.text('Devam'));
+  await advance(tester, frames: 10);
+
+  // Contact channels are all optional.
+  await tester.tap(find.text('Devam'));
+  await advance(tester, frames: 10);
+
+  await tester.tap(find.text('Kartı yayına al'));
+  await advance(tester, frames: 14);
+}
+
+/// Runs the whole investor signup — identity, verification, the fund and its
+/// kind, then the thesis — and leaves the tester on the home tab.
+Future<void> completeInvestorOnboarding(
+  WidgetTester tester, {
+  required FakeAuthRepository auth,
+  String company = 'Ada Ventures',
+  InvestorKind kind = InvestorKind.angel,
+  List<String> sectors = const ['Yapay Zekâ'],
+}) async {
+  await chooseRole(tester, UserRole.investor);
+  await submitIdentity(tester);
+
+  auth.verified = true;
+  await tester.tap(find.text('Doğrulamayı kontrol et'));
+  await advance(tester, frames: 10);
+
+  // The investor step: one field and one choice.
+  await tester.enterText(find.byType(TextField).first, company);
+  await advance(tester, frames: 4);
+  await tester.tap(find.text(kind.label));
+  await advance(tester, frames: 6);
+  await tester.tap(find.text('Devam'));
   await advance(tester, frames: 10);
 
   for (final sector in sectors) {

@@ -48,12 +48,21 @@ yalnızca hesap gerektiren adımlar "bağlantı kurulamadı" der.
 `kind` şu değerlerden biri: `keynote`, `panel`, `workshop`, `pitch`,
 `networking`. Okunamayan bir doküman tüm programı bozmaz, sadece atlanır.
 
-### `organizations/{uid}` — kurum bilgilendirme kartları
+### `organizations/{uid}` — bilgilendirme kartları (kurum + girişim)
 
-Uygulama yazar; kurum portföyü kaydolurken oluşturulur.
+Uygulama yazar; kurum ve girişimci portföyleri kaydolurken oluşturulur. **İki
+kart aynı koleksiyonda durur**, `kind` alanıyla ayrılır:
+
+| `kind` | kim | zorunlu alanlar | farkı |
+| --- | --- | --- | --- |
+| `corporate` (varsayılan) | Kurum / Partner | ad, e-posta, adres, açıklama, `standCode` | stant tutar, sahne sunumu alabilir |
+| `startup` | Girişimci | ad, e-posta, açıklama, `stage` | stant yok, `stage` (aşama) var |
+
+`kind` alanı olmayan eski dokümanlar `corporate` sayılır.
 
 ```json
 {
+  "kind": "corporate",
   "name": "Nexora Robotik",
   "email": "iletisim@nexora.com",
   "address": "Teknopark, Pendik / İstanbul",
@@ -63,10 +72,13 @@ Uygulama yazar; kurum portföyü kaydolurken oluşturulur.
   "logoBase64": "…",
   "standCode": "A3",
   "sector": "Robotik & Otonom Sistemler",
+  "stage": null,
   "website": "nexora.com",
   "instagram": "@nexora",
   "linkedin": "nexora",
   "phone": "+90 5xx xxx xx xx",
+  "panelDay": 2,
+  "panelTime": "14:00",
   "availability": [
     { "time": "10:00", "mode": "inPerson", "note": "Stant görüşmesi" },
     { "time": "14:30", "mode": "online" }
@@ -74,12 +86,28 @@ Uygulama yazar; kurum portföyü kaydolurken oluşturulur.
 }
 ```
 
+`panelDay` (1–3) ve `panelTime` (09:00–17:00) sahne sunumudur; ikisi de isteğe
+bağlı ve ziyaretçinin ana sayfasında **SAHNE SUNUMLARI** başlığı altında
+listelenir. Stant gibi kilitli değil — sahnede çakışma organizatörün
+çözebileceği bir şey, ve bir sunum yeniden planlanabilmeli.
+
 3D fuar alanı doluluk bilgisini **bu** koleksiyondan alır: `standCode` alanı
 bir kutuya denk gelen her kurum, kutuyu kendi rengi, adı ve logosuyla boyar.
 Karşılığı olmayan her stant kodu gri kalır.
 
 `standCode` yayına alındıktan sonra kurallarla kilitlenir — güncelleme isteği
 aynı değeri taşımıyorsa reddedilir.
+
+**Girişim kartı** (`kind: "startup"`) stant tutmaz: `standCode` `null` kalır,
+`stands` koleksiyonuna hiç dokunmaz ve yayına alma tek bir yazma olur — kilit
+alınmadığı için "stant kapılmış" hatası da yaşanmaz. Yerine `stage` alanı
+zorunludur (`Fikir`, `Prototip`, `Pre-seed`, `Seed`, `Seri A`, `Seri B+`) ve
+kartın ilk satırında `GİRİŞİM · Seed · Yapay Zekâ` olarak görünür. Sahne sunumu
+alanları (`panelDay`, `panelTime`) girişim kartlarında kullanılmaz.
+
+Girişimler de `availability` açar: yatırımcılar ancak açılan saatler için
+görüşme talebi gönderebilir. Yani `meetings` koleksiyonu artık iki yönde de
+çalışır — girişimci bir kuruma, yatırımcı bir girişime talep gönderir.
 
 ### `stands/{standKodu}` — stant rezervasyon kilidi
 
@@ -96,7 +124,7 @@ ataması kalıcıdır.
 
 ### `meetings/{kurumId}__{başlangıçISO}` — toplantı talepleri
 
-Uygulama yazar. Kurum ana sayfasındaki **+ Müsaitlik ekle** düğmesiyle açtığı
+Uygulama yazar. Kurumun **Profil → TOPLANTI SAATLERİM** ızgarasından açtığı
 yarım saatlik dilimler `organizations` dokümanının `availability` alanında
 tutulur: her dilimin saati, türü (`inPerson` / `online`) ve isteğe bağlı
 açıklaması vardır. Ziyaretçi yalnızca bu dilimler için talep gönderebilir.
@@ -111,6 +139,8 @@ ve açıklamasız kabul edilir.
   "requesterId": "<ziyaretçi uid>",
   "requesterName": "Elif Tunca",
   "requesterEmail": "elif@ornek.com",
+  "requesterCompany": "Ada Ventures",
+  "requesterKind": "angel",
   "start": "2026-08-21T10:00:00.000",
   "end": "2026-08-21T10:30:00.000",
   "location": "Stand A1",
@@ -128,6 +158,12 @@ Her iki tarafın adı dokümana kopyalanır: ajanda ikinci bir okuma beklemeden
 toplantıyı çizebilsin, ve karşı taraf profilini değiştirse bile kayıt okunabilir
 kalsın diye.
 
+`requesterCompany` ve `requesterKind` (`angel` / `institutional`) yatırımcı
+talepleri için doldurulur; kurum talebi kabul edip etmeyeceğine bunlara bakarak
+karar verir. Kurallar `users` dokümanını karşı tarafa okutmadığı için bu bilgi
+de talebin üzerine kopyalanmak zorunda. Kendi adına gelen bir ziyaretçide iki
+alan da `null` kalır.
+
 ### `users/{uid}` — hesap kaydı (her rol için)
 
 **Her hesap** — ziyaretçi olsun kurum olsun — Firebase Authentication'a düşer ve
@@ -139,6 +175,17 @@ Kurum hesabında `firstName` alanı kurumun adını taşır, `lastName` boş kal
 Rol bilgisi (`role: "corporate"`) burada durduğu için uygulama yeniden
 açıldığında hangi deneyimin yükleneceği bu dokümandan okunur.
 
+Girişimci hesabı (`role: "entrepreneur"`) da `organizations/{uid}` altında bir
+kart tutar — `kind: "startup"` olanı. Kurum hesabından farkı, `firstName` /
+`lastName` alanlarının kurucunun adını taşıması: kart girişimin, hesap kişinin.
+Girişimin seçtiği alan `sectors` alanına da yazılır, ana sayfadaki program buna
+göre sıralanır.
+
+Yatırımcı hesabı (`role: "investor"`) kart yayınlamaz — `organizations` altında
+dokümanı olmaz. Bunun yerine kayıt sırasında `companyName` (şirket / fon adı) ve
+`investorKind` (`angel` = melek, `institutional` = kurumsal) alanları doldurulur;
+ikisi de zorunludur ve gönderdiği her görüşme talebinin üzerine kopyalanır.
+
 Uygulama yazar, elle doldurmaya gerek yok:
 
 ```json
@@ -146,6 +193,8 @@ Uygulama yazar, elle doldurmaya gerek yok:
   "role": "visitor",
   "firstName": "…", "lastName": "…", "email": "…",
   "emailVerified": true,
+  "companyName": "Ada Ventures",
+  "investorKind": "angel",
   "wallpaper": "aurora",
   "photoBase64": "…",
   "sectors": ["…"],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/util/time_format.dart';
 import 'availability_slot.dart';
+import 'investor_kind.dart';
 
 enum MeetingStatus {
   requested('Talep gönderildi', Icons.schedule_send_rounded),
@@ -42,6 +43,8 @@ class Meeting {
     required this.status,
     this.mode = MeetingMode.inPerson,
     this.requesterEmail,
+    this.requesterCompany,
+    this.requesterKind,
     this.note,
   });
 
@@ -53,6 +56,16 @@ class Meeting {
   final String requesterId;
   final String requesterName;
   final String? requesterEmail;
+
+  /// The fund or company the requester came on behalf of, and what kind of
+  /// investor they are.
+  ///
+  /// Copied onto the record like the names are, because this is what the
+  /// exhibitor decides on: "Ada Ventures · Melek yatırımcı" answers whether the
+  /// slot is worth giving up, where a bare name does not. Null for a requester
+  /// who represents nobody but themselves.
+  final String? requesterCompany;
+  final InvestorKind? requesterKind;
 
   final DateTime start;
   final DateTime end;
@@ -69,6 +82,19 @@ class Meeting {
 
   /// Optional message sent with the request.
   final String? note;
+
+  /// How the requester is introduced to the host: the fund and the kind when
+  /// there are any, and the address when there are not — an exhibitor should
+  /// never be shown a nameless row.
+  String get requesterDetail {
+    final parts = [
+      if (requesterCompany != null && requesterCompany!.trim().isNotEmpty)
+        requesterCompany!.trim(),
+      if (requesterKind != null) requesterKind!.shortLabel,
+    ];
+    if (parts.isEmpty) return requesterEmail ?? 'Ziyaretçi';
+    return parts.join('  ·  ');
+  }
 
   String get startLabel => formatHm(start);
   String get endLabel => formatHm(end);
@@ -89,6 +115,8 @@ class Meeting {
     requesterId: requesterId,
     requesterName: requesterName,
     requesterEmail: requesterEmail,
+    requesterCompany: requesterCompany,
+    requesterKind: requesterKind,
     start: start,
     end: end,
     location: location,
@@ -103,6 +131,8 @@ class Meeting {
     'requesterId': requesterId,
     'requesterName': requesterName,
     'requesterEmail': requesterEmail,
+    'requesterCompany': requesterCompany,
+    'requesterKind': requesterKind?.id,
     'start': start.toIso8601String(),
     'end': end.toIso8601String(),
     'location': location,
@@ -132,6 +162,8 @@ class Meeting {
       requesterId: requesterId,
       requesterName: (map['requesterName'] as String?) ?? 'Ziyaretçi',
       requesterEmail: map['requesterEmail'] as String?,
+      requesterCompany: map['requesterCompany'] as String?,
+      requesterKind: InvestorKind.fromId(map['requesterKind'] as String?),
       start: start,
       end: end,
       location: (map['location'] as String?) ?? 'Fuar alanı',
