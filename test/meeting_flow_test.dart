@@ -85,9 +85,9 @@ void main() {
 
     // Only the two declared hours are offered.
     expect(find.text('SAAT SEÇ'), findsOneWidget);
-    expect(find.text('10:00'), findsOneWidget);
-    expect(find.text('14:30'), findsOneWidget);
-    expect(find.text('11:00'), findsNothing);
+    expect(find.text('10:00 – 10:30'), findsOneWidget);
+    expect(find.text('14:30 – 15:00'), findsOneWidget);
+    expect(find.text('11:00 – 11:30'), findsNothing);
 
     // Sending without choosing must not create anything.
     await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
@@ -95,7 +95,7 @@ void main() {
     expect(meetings.meetings, isEmpty);
     expect(find.text('Bir saat seç.'), findsOneWidget);
 
-    await tester.tap(find.text('10:00'));
+    await tester.tap(find.text('10:00 – 10:30'));
     await advance(tester, frames: 6);
     await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
     await advance(tester, frames: 10);
@@ -188,6 +188,13 @@ void main() {
       findsOneWidget,
       reason: 'the host sees who asked, not their own name',
     );
+    // Who, which day, which hour, and in what form — everything the answer
+    // depends on, on the card the answer is given from.
+    expect(find.text('elif@example.com'), findsOneWidget);
+    expect(find.text('Bugün  ·  10:00 – 10:30'), findsOneWidget);
+    expect(find.text('Yüz yüze'), findsOneWidget);
+    expect(find.text('Onayla'), findsOneWidget);
+    expect(find.text('Reddet'), findsOneWidget);
 
     await tester.tap(find.text('Onayla'));
     await advance(tester, frames: 10);

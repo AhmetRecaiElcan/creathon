@@ -315,7 +315,7 @@ void main() {
     await tester.tap(find.text('AJANDA'));
     await advance(tester, frames: 10);
 
-    expect(find.text('BEĞENİLEN KURUMLAR'), findsOneWidget);
+    expect(find.text('FAVORİLERİM'), findsOneWidget);
     expect(find.text('Nexora Robotik'), findsOneWidget);
     expect(find.text('STAND A1'), findsOneWidget);
     expect(find.text('Ajandan boş.'), findsNothing);

@@ -23,6 +23,8 @@ class UserProfile {
     this.wallpaper = ProfileWallpaper.aurora,
     this.photoBase64,
     this.sectors = const {},
+    this.stages = const {},
+    this.markets = const {},
     this.savedEventIds = const {},
     this.likedOrgIds = const {},
   });
@@ -63,6 +65,15 @@ class UserProfile {
 
   /// Interests from [Taxonomy.sectors]; what the programme is filtered against.
   final Set<String> sectors;
+
+  /// Which maturity levels this account is looking for, from [Taxonomy.stages],
+  /// and which market reaches, from [Taxonomy.markets].
+  ///
+  /// The investor's two extra filters. Empty means "no preference" rather than
+  /// "nothing matches", so an account that never answered still sees every card
+  /// — it just gets no ranking out of them.
+  final Set<String> stages;
+  final Set<String> markets;
 
   /// Ids of the sessions the user added to their own agenda from the home
   /// feed. Kept on the profile rather than in a separate store so one write
@@ -134,6 +145,8 @@ class UserProfile {
     ProfileWallpaper? wallpaper,
     String? photoBase64,
     Set<String>? sectors,
+    Set<String>? stages,
+    Set<String>? markets,
     Set<String>? savedEventIds,
     Set<String>? likedOrgIds,
     // Removing the avatar cannot be expressed by passing null, which means
@@ -152,6 +165,8 @@ class UserProfile {
       wallpaper: wallpaper ?? this.wallpaper,
       photoBase64: clearPhoto ? null : (photoBase64 ?? this.photoBase64),
       sectors: sectors ?? this.sectors,
+      stages: stages ?? this.stages,
+      markets: markets ?? this.markets,
       savedEventIds: savedEventIds ?? this.savedEventIds,
       likedOrgIds: likedOrgIds ?? this.likedOrgIds,
     );
@@ -169,6 +184,8 @@ class UserProfile {
     'wallpaper': wallpaper.id,
     'photoBase64': photoBase64,
     'sectors': sectors.toList(growable: false),
+    'stages': stages.toList(growable: false),
+    'markets': markets.toList(growable: false),
     'savedEventIds': savedEventIds.toList(growable: false),
     'likedOrgIds': likedOrgIds.toList(growable: false),
   };
@@ -186,6 +203,8 @@ class UserProfile {
       wallpaper: ProfileWallpaper.fromId(map['wallpaper'] as String?),
       photoBase64: map['photoBase64'] as String?,
       sectors: {...?(map['sectors'] as List?)?.whereType<String>()},
+      stages: {...?(map['stages'] as List?)?.whereType<String>()},
+      markets: {...?(map['markets'] as List?)?.whereType<String>()},
       savedEventIds: {
         ...?(map['savedEventIds'] as List?)?.whereType<String>(),
       },

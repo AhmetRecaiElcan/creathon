@@ -117,9 +117,11 @@ class AgendaScreen extends ConsumerWidget {
               Reveal(
                 delay: const Duration(milliseconds: 120),
                 child: SectionHeader(
-                  'BEĞENİLEN KURUMLAR',
+                  // Not "kurumlar" any more: a scan can keep a venture card
+                  // just as easily as a company's.
+                  'FAVORİLERİM',
                   trailing: Text(
-                    '${liked.length} kurum',
+                    '${liked.length} kart',
                     style: AppTypography.bodySmall.copyWith(fontSize: 12),
                   ),
                 ),

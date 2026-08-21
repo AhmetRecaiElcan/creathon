@@ -10,6 +10,7 @@ import '../../core/widgets/glass_field.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/section_header.dart';
 import '../../data/meeting_repository.dart';
+import '../../domain/availability_slot.dart';
 import '../../domain/organization.dart';
 import '../../domain/user_role.dart';
 import '../profile/profile_controller.dart';
@@ -105,6 +106,24 @@ class _MeetingRequestSheetState
     }
   }
 
+  /// What the chosen slot commits the sender to, spelled out under the grid:
+  /// the half-hour, whether it is a call or a walk, where to walk to, and what
+  /// the exhibitor said the slot was for.
+  String _summaryFor(OrganizationSlot? slot) {
+    if (slot == null) {
+      return 'Kurumun açtığı saatler ve görüşme türü yukarıda.';
+    }
+    final place = switch (slot.mode) {
+      MeetingMode.online => 'online görüşme',
+      MeetingMode.inPerson => widget.organization.standCode == null
+          ? 'yüz yüze, Networking Alanı'
+          : 'yüz yüze, Stand ${widget.organization.standCode}',
+    };
+    final note = slot.note;
+    return '${slot.label} – ${slot.offer.endTime} · $place'
+        '${note == null || note.isEmpty ? '' : ' · $note'}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
@@ -114,8 +133,7 @@ class _MeetingRequestSheetState
     final profile = ref.watch(profileProvider);
 
     return SafeArea(
-      child: Padding
-      (
+      child: Padding(
         padding: EdgeInsets.only(
           left: AppSpace.lg,
           right: AppSpace.lg,
@@ -202,13 +220,9 @@ class _MeetingRequestSheetState
                       ),
                       const SizedBox(height: AppSpace.lg),
                       SizedBox(
-                        height: 22,
+                        height: 34,
                         child: Text(
-                          _error ??
-                              (_chosen == null
-                                  ? 'Kurumun açtığı saatler listelendi.'
-                                  : '${_chosen!.label} için talep '
-                                        'göndereceksin.'),
+                          _error ?? _summaryFor(_chosen),
                           style: AppTypography.bodySmall.copyWith(
                             color: _error == null
                                 ? AppPalette.textSecondary
@@ -232,6 +246,12 @@ class _MeetingRequestSheetState
   }
 }
 
+/// One offered half-hour: the time, and how the meeting would happen.
+///
+/// The mode is on the chip rather than behind a tap because it changes the
+/// answer: an online slot is a call to join from anywhere, an in-person one
+/// means being at the booth at that minute. A visitor choosing between two
+/// times has to see the difference without opening anything.
 class _SlotChip extends StatelessWidget {
   const _SlotChip({
     required this.slot,
@@ -247,9 +267,12 @@ class _SlotChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     final blocked = onTap == null;
+    final foreground = blocked
+        ? AppPalette.textTertiary
+        : AppPalette.textPrimary;
 
     return Tooltip(
-      message: slot.blockedReason ?? '',
+      message: slot.blockedReason ?? slot.note ?? '',
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
@@ -259,7 +282,7 @@ class _SlotChip extends StatelessWidget {
             vertical: AppSpace.md,
           ),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
+            borderRadius: BorderRadius.circular(AppRadius.md),
             color: selected
                 ? accent.withValues(alpha: 0.22)
                 : Colors.white.withValues(alpha: blocked ? 0.03 : 0.06),
@@ -269,30 +292,53 @@ class _SlotChip extends StatelessWidget {
                   : AppPalette.stroke,
             ),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (blocked)
-                const Padding(
-                  padding: EdgeInsets.only(right: 6),
-                  child: Icon(
-                    Icons.block_rounded,
-                    size: 13,
-                    color: AppPalette.textTertiary,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (blocked)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 6),
+                      child: Icon(
+                        Icons.block_rounded,
+                        size: 13,
+                        color: AppPalette.textTertiary,
+                      ),
+                    )
+                  else if (selected)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Icon(Icons.check_rounded, size: 14, color: accent),
+                    ),
+                  Text(
+                    '${slot.label} – ${slot.offer.endTime}',
+                    style: AppTypography.label.copyWith(color: foreground),
                   ),
-                )
-              else if (selected)
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: Icon(Icons.check_rounded, size: 14, color: accent),
-                ),
-              Text(
-                slot.label,
-                style: AppTypography.label.copyWith(
-                  color: blocked
-                      ? AppPalette.textTertiary
-                      : AppPalette.textPrimary,
-                ),
+                ],
+              ),
+              const SizedBox(height: 3),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    slot.mode.icon,
+                    size: 12,
+                    color: blocked ? AppPalette.textTertiary : accent,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    slot.mode.label,
+                    style: AppTypography.bodySmall.copyWith(
+                      fontSize: 11,
+                      color: blocked
+                          ? AppPalette.textTertiary
+                          : AppPalette.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

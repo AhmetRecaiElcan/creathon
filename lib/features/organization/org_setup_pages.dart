@@ -216,6 +216,63 @@ class OrgDetailsPage extends ConsumerWidget {
               ),
           ],
         ),
+
+        // The two axes an investor screens on. Optional for a company — its
+        // card works without them — but a company that answers turns up at the
+        // top of the list of whoever was looking for exactly it.
+        const SizedBox(height: AppSpace.xl),
+        Reveal(
+          delay: const Duration(milliseconds: 420),
+          child: const SectionHeader('SEVİYE'),
+        ),
+        const SizedBox(height: AppSpace.sm),
+        Text(
+          'Kurumun bulunduğu aşama. Yatırımcılar hangi seviyeye baktıklarını '
+          'seçiyor; boş bırakabilirsin.',
+          style: AppTypography.bodySmall,
+        ),
+        const SizedBox(height: AppSpace.md),
+        Wrap(
+          spacing: AppSpace.sm,
+          runSpacing: AppSpace.sm,
+          children: [
+            for (final stage in Taxonomy.stages)
+              SelectChip(
+                label: stage,
+                selected: organization.stageLabel == stage,
+                onTap: () => controller.setStage(
+                  organization.stageLabel == stage ? '' : stage,
+                ),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: AppSpace.xl),
+        Reveal(
+          delay: const Duration(milliseconds: 460),
+          child: const SectionHeader('HEDEF PAZAR'),
+        ),
+        const SizedBox(height: AppSpace.sm),
+        Text(
+          'Nerede iş yapmak istiyorsun? Örneğin ulusal alanda büyümek '
+          'istiyorsan "Ulusal".',
+          style: AppTypography.bodySmall,
+        ),
+        const SizedBox(height: AppSpace.md),
+        Wrap(
+          spacing: AppSpace.sm,
+          runSpacing: AppSpace.sm,
+          children: [
+            for (final market in Taxonomy.markets)
+              SelectChip(
+                label: market,
+                selected: organization.marketLabel == market,
+                onTap: () => controller.setMarket(
+                  organization.marketLabel == market ? '' : market,
+                ),
+              ),
+          ],
+        ),
       ],
     );
   }
@@ -516,13 +573,14 @@ class _StartupPublishNote extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.schedule_rounded, size: 18, color: accent),
+          Icon(Icons.qr_code_2_rounded, size: 18, color: accent),
           const SizedBox(width: AppSpace.md),
           Expanded(
             child: Text(
-              'Yayına aldıktan sonra girişim sekmesinden görüşme saatlerini aç: '
-              'yatırımcılar ancak açtığın saatler için senden randevu '
-              'isteyebilir. Kartın her bilgisini sonradan düzenleyebilirsin.',
+              'Yayına aldıktan sonra KARTIM sekmesindeki karekod bu kartı açar; '
+              'standlardaki kurumlara da buradan görüşme talebi '
+              'gönderebilirsin. Kartın her bilgisini sonradan '
+              'düzenleyebilirsin.',
               style: AppTypography.bodySmall,
             ),
           ),

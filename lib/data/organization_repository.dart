@@ -247,9 +247,12 @@ final exhibitorsProvider = Provider<List<Organization>>(
 );
 
 /// Just the startups. Their cards live in the same collection as the
-/// exhibitors' — same shape, same scanner, same meeting hours — so the two are
+/// exhibitors' — same shape, same scanner, same card widget — so the two are
 /// told apart here rather than in two collections that would double everything
 /// downstream.
+///
+/// Only exhibitors keep meeting hours, so the request picker reads
+/// [exhibitorsProvider] instead: a venture in that list could never be booked.
 final startupsProvider = Provider<List<Organization>>(
   (ref) => ref
       .watch(organizationsProvider)

@@ -2,9 +2,11 @@ import 'package:creathon/core/widgets/accent_button.dart';
 import 'package:creathon/domain/availability_slot.dart';
 import 'package:creathon/domain/brand_color.dart';
 import 'package:creathon/domain/investor_kind.dart';
+import 'package:creathon/domain/org_kind.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
 import 'package:creathon/domain/user_role.dart';
+import 'package:creathon/features/organization/widgets/org_card.dart';
 import 'package:creathon/features/organization/widgets/org_card_sheet.dart';
 import 'package:creathon/features/profile/profile_controller.dart';
 import 'package:flutter/material.dart';
@@ -131,10 +133,9 @@ void main() {
     await tester.tap(find.text('Görüşme talebi oluştur'));
     await advance(tester, frames: 10);
 
-    expect(find.text('Kimle görüşeceksin?'), findsOneWidget);
-    expect(find.text('KURUMLAR'), findsOneWidget);
+    expect(find.text('Hangi kurumla?'), findsOneWidget);
     expect(
-      find.text('1 saat açık  ·  Robotik & Otonom Sistemler'),
+      find.text('1 saat açık  ·  Yüz yüze'),
       findsOneWidget,
     );
 
@@ -149,7 +150,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.text('10:00'));
+    await tester.tap(find.text('10:00 – 10:30'));
     await advance(tester, frames: 6);
     await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
     await advance(tester, frames: 10);
@@ -167,13 +168,104 @@ void main() {
       reason: 'the exhibitor decides on the fund, not on a bare name',
     );
 
-    // The sheet closes itself and the request is on both the investor's tabs.
+    // The sheet closes itself and the request is on the meetings tab.
     await advance(tester, frames: 30);
     expect(find.text('TALEPLERİM'), findsOneWidget);
+  });
 
-    await tester.tap(find.text('ANA SAYFA'));
+  testWidgets('the investor home ranks cards and the events tab holds the rest', (
+    tester,
+  ) async {
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([
+        // An exhibitor with a stage talk, and two ventures — one in the
+        // investor's own field, one outside it.
+        Organization(
+          id: 'org-1',
+          name: 'Baykar',
+          email: 'bilgi@baykar.com',
+          address: 'Kurtköy',
+          description: 'İnsansız hava araçları.',
+          standCode: 'A1',
+          sector: 'Havacılık & Uzay',
+          panelDay: 1,
+          panelTime: '14:00',
+        ),
+        const Organization(
+          id: 'startup-1',
+          kind: OrgKind.startup,
+          name: 'Zeta Uzay',
+          email: 'iletisim@zeta.com',
+          description: 'Küp uydu itki sistemleri.',
+          sector: 'Havacılık & Uzay',
+          stage: 'Pre-seed',
+        ),
+        const Organization(
+          id: 'startup-2',
+          kind: OrgKind.startup,
+          name: 'Nexora Robotik',
+          email: 'iletisim@nexora.com',
+          description: 'Otonom seyir yazılımı.',
+          sector: 'Yapay Zekâ',
+          stage: 'Seed',
+          market: 'Ulusal',
+        ),
+      ]),
+      meetings: FakeMeetingRepository(),
+      sessions: [
+        testSession(
+          id: 'e1',
+          title: 'Yapay Zekâ ile Üretim',
+          hour: 10,
+          sectors: ['Yapay Zekâ'],
+        ),
+      ],
+    );
+    await completeInvestorOnboarding(
+      tester,
+      auth: auth,
+      sectors: const ['Yapay Zekâ'],
+      stages: const ['Seed'],
+      markets: const ['Ulusal'],
+    );
+
+    // The home screen is the ranked list. Nexora matches all three criteria and
+    // leads; Zeta matches none of them and drops below the fold.
+    expect(find.text('SENİN İÇİN'), findsOneWidget);
+    expect(find.text('SIRALAMA ÖLÇÜTÜM'), findsOneWidget);
+    expect(
+      find.text('Yapay Zekâ  ·  Seed  ·  Ulusal'),
+      findsNWidgets(2),
+      reason: 'once as the stated criteria, once as what the top row matched',
+    );
+    expect(
+      find.text('3/3'),
+      findsOneWidget,
+      reason: 'the badge says how many of the three criteria the card hit',
+    );
+    expect(find.text('DİĞERLERİ'), findsOneWidget);
+    expect(find.text('Zeta Uzay'), findsOneWidget);
+
+    // The programme and the stage talks are a different job, on their own tab.
+    expect(find.text('SAHNE SUNUMLARI'), findsNothing);
+
+    // Tapping a venture opens the same card a scan would.
+    await tester.tap(find.text('Nexora Robotik'));
     await advance(tester, frames: 10);
-    expect(find.text('GÖRÜŞMELERİM'), findsOneWidget);
+    expect(find.text('Otonom seyir yazılımı.'), findsOneWidget);
+    Navigator.of(tester.element(find.byType(OrgCard).first)).pop();
+    await advance(tester, frames: 10);
+
+    await tester.tap(find.text('ETKİNLİKLER'));
+    await advance(tester, frames: 12);
+
+    expect(find.text('Etkinlikler'), findsOneWidget);
+    expect(find.text('SAHNE SUNUMLARI'), findsOneWidget);
+    expect(find.text('Baykar'), findsWidgets);
+    expect(find.text('Yapay Zekâ ile Üretim'), findsOneWidget);
   });
 
   testWidgets('a company with no open hours cannot be asked', (tester) async {

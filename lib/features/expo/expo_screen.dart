@@ -199,7 +199,7 @@ class _Hint extends StatelessWidget {
             color: AppPalette.textTertiary,
           ),
           const SizedBox(width: 6),
-          Text('SÜRÜKLE · YAKINLAŞTIR', style: AppTypography.eyebrow),
+          Text('SÜRÜKLE · YAKINLAŞ → LOGOLAR', style: AppTypography.eyebrow),
         ],
       ),
     );
@@ -263,8 +263,8 @@ class _Legend extends StatelessWidget {
                 Text('Boş standlar gri.', style: AppTypography.titleSmall),
                 const SizedBox(height: 2),
                 Text(
-                  'Bir firma standını aldığında kutu kendi rengini ve logosunu '
-                  'alır. Kartı için standa dokun.',
+                  'Her kutu standı alan firmanın rengi. Yakınlaştırdıkça '
+                  'logo tabelaları açılır; kart için standa dokun.',
                   style: AppTypography.bodySmall,
                 ),
               ],

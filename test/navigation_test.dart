@@ -79,6 +79,52 @@ void main() {
     );
   });
 
+  testWidgets('the investor gets a fifth tab, and the others do not', (
+    tester,
+  ) async {
+    // The bar shows a different subset of the same fixed branches per role, so
+    // the risk worth covering is the mapping: a slot must open its own branch,
+    // not the one at its position.
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository(),
+      meetings: FakeMeetingRepository(),
+      sessions: [testSession(id: 'e1', title: 'Uzay Ekonomisi', hour: 14)],
+    );
+    await completeInvestorOnboarding(tester, auth: auth);
+
+    for (final label in [
+      'ANA SAYFA',
+      'ETKİNLİKLER',
+      'FUAR ALANI',
+      'GÖRÜŞMELER',
+      'PROFİL',
+    ]) {
+      expect(find.text(label), findsOneWidget, reason: '$label must be on the bar');
+    }
+
+    await openTab(tester, 'ETKİNLİKLER');
+    expect(find.text('Etkinlikler'), findsOneWidget);
+    expect(find.text('Uzay Ekonomisi'), findsOneWidget);
+
+    await openTab(tester, 'GÖRÜŞMELER');
+    expect(find.text('Görüşmeler'), findsOneWidget);
+
+    await openTab(tester, 'FUAR ALANI');
+    expect(find.text('Fuar Alanı'), findsOneWidget);
+
+    await openTab(tester, 'ANA SAYFA');
+    expect(find.text('Henüz yayında kart yok.'), findsOneWidget);
+  });
+
+  testWidgets('a visitor keeps four tabs and no events tab', (tester) async {
+    await onboard(tester);
+    expect(find.text('AJANDA'), findsOneWidget);
+    expect(find.text('ETKİNLİKLER'), findsNothing);
+  });
+
   testWidgets('editing interests on the profile reorders the home feed', (
     tester,
   ) async {

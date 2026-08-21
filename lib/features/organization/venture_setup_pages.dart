@@ -208,8 +208,8 @@ class VentureFocusPage extends ConsumerWidget {
     return StepPage(
       title: 'Girişimin hangi durumda?',
       subtitle:
-          'Aşama ve alan, kartındaki ilk satır. Bir yatırımcı görüşmeye değip '
-          'değmediğine önce buna bakarak karar veriyor.',
+          'Aşama ve alan kartındaki ilk satır; hedef pazar da yatırımcının '
+          'listesinde seni öne çıkaran üçüncü cevap.',
       children: [
         Reveal(
           delay: const Duration(milliseconds: 160),
@@ -256,7 +256,34 @@ class VentureFocusPage extends ConsumerWidget {
 
         const SizedBox(height: AppSpace.xl),
         Reveal(
-          delay: const Duration(milliseconds: 280),
+          delay: const Duration(milliseconds: 260),
+          child: const SectionHeader('HEDEF PAZAR'),
+        ),
+        const SizedBox(height: AppSpace.sm),
+        Text(
+          'Nerede iş yapmak istiyorsun? Yatırımcılar bu cevaba göre de '
+          'filtreliyor.',
+          style: AppTypography.bodySmall,
+        ),
+        const SizedBox(height: AppSpace.md),
+        Wrap(
+          spacing: AppSpace.sm,
+          runSpacing: AppSpace.sm,
+          children: [
+            for (final market in Taxonomy.markets)
+              SelectChip(
+                label: market,
+                selected: organization.marketLabel == market,
+                onTap: () => controller.setMarket(
+                  organization.marketLabel == market ? '' : market,
+                ),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: AppSpace.xl),
+        Reveal(
+          delay: const Duration(milliseconds: 300),
           child: const _FocusNote(),
         ),
       ],
@@ -285,8 +312,8 @@ class _FocusNote extends StatelessWidget {
           const SizedBox(width: AppSpace.md),
           Expanded(
             child: Text(
-              'Seçtiğin alan aynı zamanda ana sayfandaki programı sıralar ve '
-              'yatırımcıların girişim listesinde önce sana bakmasını sağlar.',
+              'Aşama ve alan kartının ilk satırında görünür; seçtiğin alan '
+              'aynı zamanda ana sayfandaki programı sana göre sıralar.',
               style: AppTypography.bodySmall,
             ),
           ),

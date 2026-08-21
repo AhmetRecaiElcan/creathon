@@ -79,6 +79,23 @@ class ProfileController extends Notifier<UserProfile> {
     _sync();
   }
 
+  /// The investor's other two filters: which maturity levels they write into,
+  /// and how far the company has to be reaching. Toggled the same way the
+  /// sectors are, because they are the same kind of answer.
+  void toggleStage(String stage) {
+    final next = Set<String>.of(state.stages);
+    if (!next.remove(stage)) next.add(stage);
+    state = state.copyWith(stages: next);
+    _sync();
+  }
+
+  void toggleMarket(String market) {
+    final next = Set<String>.of(state.markets);
+    if (!next.remove(market)) next.add(market);
+    state = state.copyWith(markets: next);
+    _sync();
+  }
+
   void toggleSector(String sector) {
     final next = Set<String>.of(state.sectors);
     if (!next.remove(sector)) next.add(sector);

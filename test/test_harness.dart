@@ -427,6 +427,7 @@ Future<void> completeEntrepreneurOnboarding(
   String contactEmail = 'iletisim@nexora.com',
   String stage = 'Seed',
   String sector = 'Yapay Zekâ',
+  String market = 'Ulusal',
 }) async {
   await chooseRole(tester, UserRole.entrepreneur);
   await submitIdentity(tester);
@@ -444,11 +445,14 @@ Future<void> completeEntrepreneurOnboarding(
   await tester.tap(find.text('Devam'));
   await advance(tester, frames: 10);
 
-  // Stage and field, both required before the step will pass.
+  // Stage, field and target market — all three required before the step passes.
   await tester.tap(find.text(stage));
   await advance(tester, frames: 6);
   await scrollTo(tester, find.text(sector));
   await tester.tap(find.text(sector));
+  await advance(tester, frames: 6);
+  await scrollTo(tester, find.text(market));
+  await tester.tap(find.text(market));
   await advance(tester, frames: 6);
   await tester.tap(find.text('Devam'));
   await advance(tester, frames: 10);
@@ -469,6 +473,8 @@ Future<void> completeInvestorOnboarding(
   String company = 'Ada Ventures',
   InvestorKind kind = InvestorKind.angel,
   List<String> sectors = const ['Yapay Zekâ'],
+  List<String> stages = const ['Seed'],
+  List<String> markets = const ['Ulusal'],
 }) async {
   await chooseRole(tester, UserRole.investor);
   await submitIdentity(tester);
@@ -487,6 +493,20 @@ Future<void> completeInvestorOnboarding(
 
   for (final sector in sectors) {
     await tester.tap(find.text(sector));
+    await advance(tester, frames: 6);
+  }
+  await tester.tap(find.text('Devam'));
+  await advance(tester, frames: 10);
+
+  // The screening criteria: which levels, and how far a company has to reach.
+  for (final stage in stages) {
+    await scrollTo(tester, find.text(stage));
+    await tester.tap(find.text(stage));
+    await advance(tester, frames: 6);
+  }
+  for (final market in markets) {
+    await scrollTo(tester, find.text(market));
+    await tester.tap(find.text(market));
     await advance(tester, frames: 6);
   }
   await tester.tap(find.text('Devam'));

@@ -51,8 +51,7 @@ class OrgCardScreen extends ConsumerWidget {
                 // person at a time. Same code, two different instructions.
                 organization.kind.isStartup
                     ? 'Bu karekodu göster. Okutan yatırımcı ve kurumlar '
-                          'aşağıdaki kartı görür ve senden görüşme talep '
-                          'edebilir.'
+                          'aşağıdaki kartı görür ve kaydedebilir.'
                     : 'Bu karekodu standına koy. Okutan herkes aşağıdaki kartı '
                           'görür ve ajandasına ekleyebilir.',
                 style: AppTypography.bodyLarge,

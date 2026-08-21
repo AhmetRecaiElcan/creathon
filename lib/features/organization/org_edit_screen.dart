@@ -226,29 +226,54 @@ class _OrgEditScreenState extends ConsumerState<OrgEditScreen> {
                     textInputAction: TextInputAction.newline,
                   ),
 
-                  if (isStartup) ...[
-                    const SizedBox(height: AppSpace.xl),
-                    const SectionHeader('AŞAMA'),
-                    const SizedBox(height: AppSpace.md),
-                    Wrap(
-                      spacing: AppSpace.sm,
-                      runSpacing: AppSpace.sm,
-                      children: [
-                        for (final stage in Taxonomy.stages)
-                          SelectChip(
-                            label: stage,
-                            selected: organization.stageLabel == stage,
-                            onTap: () {
-                              controller
-                                ..setStage(
-                                  organization.stageLabel == stage ? '' : stage,
-                                )
-                                ..save();
-                            },
-                          ),
-                      ],
-                    ),
-                  ],
+                  // Both kinds of card declare a stage and a market now: they
+                  // are what an investor's home screen ranks on, so a company
+                  // that leaves them empty simply never surfaces there.
+                  const SizedBox(height: AppSpace.xl),
+                  SectionHeader(isStartup ? 'AŞAMA' : 'SEVİYE'),
+                  const SizedBox(height: AppSpace.md),
+                  Wrap(
+                    spacing: AppSpace.sm,
+                    runSpacing: AppSpace.sm,
+                    children: [
+                      for (final stage in Taxonomy.stages)
+                        SelectChip(
+                          label: stage,
+                          selected: organization.stageLabel == stage,
+                          onTap: () {
+                            controller
+                              ..setStage(
+                                organization.stageLabel == stage ? '' : stage,
+                              )
+                              ..save();
+                          },
+                        ),
+                    ],
+                  ),
+
+                  const SizedBox(height: AppSpace.xl),
+                  const SectionHeader('HEDEF PAZAR'),
+                  const SizedBox(height: AppSpace.md),
+                  Wrap(
+                    spacing: AppSpace.sm,
+                    runSpacing: AppSpace.sm,
+                    children: [
+                      for (final market in Taxonomy.markets)
+                        SelectChip(
+                          label: market,
+                          selected: organization.marketLabel == market,
+                          onTap: () {
+                            controller
+                              ..setMarket(
+                                organization.marketLabel == market
+                                    ? ''
+                                    : market,
+                              )
+                              ..save();
+                          },
+                        ),
+                    ],
+                  ),
 
                   const SizedBox(height: AppSpace.xl),
                   const SectionHeader('MARKA RENGİ'),
@@ -345,11 +370,14 @@ class _OrgEditScreenState extends ConsumerState<OrgEditScreen> {
               ),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(
+              // The Scaffold already lifts the body above the keyboard, and
+              // this context reads the inset from above it — adding it here
+              // counted the keyboard twice. See the onboarding footer.
+              padding: const EdgeInsets.fromLTRB(
                 AppSpace.xl,
                 0,
                 AppSpace.xl,
-                AppSpace.lg + MediaQuery.viewInsetsOf(context).bottom,
+                AppSpace.lg,
               ),
               child: AccentButton(
                 label: 'Kaydet',

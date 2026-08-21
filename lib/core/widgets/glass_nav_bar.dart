@@ -11,11 +11,20 @@ class NavDestination {
     required this.label,
     required this.icon,
     required this.activeIcon,
+    required this.branch,
   });
 
   final String label;
   final IconData icon;
   final IconData activeIcon;
+
+  /// Which shell branch this slot opens.
+  ///
+  /// Not the same as the slot's position: the branches are a fixed list shared
+  /// by every audience, while the bar shows a different subset in a different
+  /// order per role. Naming the branch here is what lets the investor's second
+  /// tab be the fifth branch without the other portfolios growing a tab.
+  final int branch;
 }
 
 /// Floating frosted tab bar.

@@ -117,46 +117,48 @@ class OrgProfileScreen extends ConsumerWidget {
                   : _StandLock(standCode: organization.standCode),
             ),
 
-            const SizedBox(height: AppSpace.xl),
-            Reveal(
-              delay: const Duration(milliseconds: 180),
-              child: SectionHeader(
-                'TOPLANTI SAATLERİM',
-                trailing: Text(
-                  '${availability.length} saat',
-                  style: AppTypography.bodySmall.copyWith(fontSize: 12),
+            // Hours belong to the side that stands still. A founder walks the
+            // hall asking companies for time, so there is nothing to open here
+            // — and an empty grid would only invite them to wait for requests
+            // that cannot arrive.
+            if (!isStartup) ...[
+              const SizedBox(height: AppSpace.xl),
+              Reveal(
+                delay: const Duration(milliseconds: 180),
+                child: SectionHeader(
+                  'TOPLANTI SAATLERİM',
+                  trailing: Text(
+                    '${availability.length} saat',
+                    style: AppTypography.bodySmall.copyWith(fontSize: 12),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: AppSpace.sm),
-            Text(
-              availability.isEmpty
-                  ? isStartup
-                        ? 'Saat açmadan yatırımcılar senden görüşme talep '
-                              'edemez.'
-                        : 'Saat açmadan ziyaretçiler senden toplantı talep '
-                              'edemez.'
-                  : 'Bir saate dokunarak türünü ve açıklamasını '
-                        'değiştirebilir ya da kapatabilirsin. Gelen talepler '
-                        'ana sayfanda görünür.',
-              style: AppTypography.bodySmall,
-            ),
-            const SizedBox(height: AppSpace.md),
-            Wrap(
-              spacing: AppSpace.sm,
-              runSpacing: AppSpace.sm,
-              children: [
-                AddAvailabilityButton(
-                  onTap: () => showAvailabilitySheet(context),
-                ),
-                for (final slot in availability)
-                  AvailabilityChip(
-                    slot: slot,
-                    onTap: () =>
-                        showAvailabilitySheet(context, existing: slot),
+              const SizedBox(height: AppSpace.sm),
+              Text(
+                availability.isEmpty
+                    ? 'Saat açmadan ziyaretçiler senden toplantı talep edemez.'
+                    : 'Bir saate dokunarak türünü ve açıklamasını '
+                          'değiştirebilir ya da kapatabilirsin. Gelen talepler '
+                          'ana sayfanda görünür.',
+                style: AppTypography.bodySmall,
+              ),
+              const SizedBox(height: AppSpace.md),
+              Wrap(
+                spacing: AppSpace.sm,
+                runSpacing: AppSpace.sm,
+                children: [
+                  AddAvailabilityButton(
+                    onTap: () => showAvailabilitySheet(context),
                   ),
-              ],
-            ),
+                  for (final slot in availability)
+                    AvailabilityChip(
+                      slot: slot,
+                      onTap: () =>
+                          showAvailabilitySheet(context, existing: slot),
+                    ),
+                ],
+              ),
+            ],
 
             const SizedBox(height: AppSpace.xl),
             Reveal(

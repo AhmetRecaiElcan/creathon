@@ -2,14 +2,13 @@ import 'package:creathon/core/widgets/accent_button.dart';
 import 'package:creathon/data/organization_repository.dart';
 import 'package:creathon/domain/availability_slot.dart';
 import 'package:creathon/domain/brand_color.dart';
-import 'package:creathon/domain/investor_kind.dart';
-import 'package:creathon/domain/meeting.dart';
 import 'package:creathon/domain/org_kind.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
 import 'package:creathon/domain/user_role.dart';
 import 'package:creathon/features/meetings/meetings_controller.dart';
 import 'package:creathon/features/organization/organization_controller.dart';
+import 'package:creathon/features/organization/widgets/org_card.dart';
 import 'package:creathon/features/organization/widgets/org_card_sheet.dart';
 import 'package:creathon/features/profile/profile_controller.dart';
 import 'package:flutter/material.dart';
@@ -40,10 +39,6 @@ void main() {
     availability: [for (final time in slots) AvailabilitySlot(time: time)],
   );
 
-  DateTime todayAt(int hour, int minute) {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day, hour, minute);
-  }
 
   testWidgets('a founder is asked for the venture, not for a booth', (
     tester,
@@ -89,6 +84,12 @@ void main() {
 
     await scrollTo(tester, find.text('Yapay Zekâ'));
     await tester.tap(find.text('Yapay Zekâ'));
+    await advance(tester, frames: 6);
+    expect(find.text('Bir hedef pazar seç'), findsOneWidget);
+
+    // The third answer an investor screens on: how far this venture reaches.
+    await scrollTo(tester, find.text('Ulusal'));
+    await tester.tap(find.text('Ulusal'));
     await advance(tester, frames: 6);
     await tester.tap(find.text('Devam'));
     await advance(tester, frames: 10);
@@ -156,7 +157,7 @@ void main() {
     expect(find.textContaining('Bu karekodu göster'), findsOneWidget);
   });
 
-  testWidgets('a founder asks a company and an investor asks them back', (
+  testWidgets('a founder sends a request to a company at its stand', (
     tester,
   ) async {
     const email = 'elif@example.com';
@@ -174,74 +175,69 @@ void main() {
     );
     await completeEntrepreneurOnboarding(tester, auth: auth);
 
-    // Outgoing: the founder picks a company from the list on their home.
     await tester.tap(find.text('Görüşme talebi gönder'));
     await advance(tester, frames: 10);
 
-    expect(find.text('KURUMLAR'), findsOneWidget);
+    // The company's own hours, with what kind of meeting each one is.
+    expect(find.text('Hangi kurumla?'), findsOneWidget);
+    expect(find.text('1 saat açık  ·  Yüz yüze'), findsOneWidget);
+
     await tester.tap(find.text('Baykar'));
     await advance(tester, frames: 10);
 
-    await tester.tap(find.text('10:00'));
+    expect(find.text('10:00 – 10:30'), findsOneWidget);
+    expect(find.text('Yüz yüze'), findsWidgets);
+
+    await tester.tap(find.text('10:00 – 10:30'));
     await advance(tester, frames: 6);
+    // Once a time is chosen the sheet says where it happens, not just when.
+    expect(
+      find.text('10:00 – 10:30 · yüz yüze, Stand A1'),
+      findsOneWidget,
+    );
+
     await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
     await advance(tester, frames: 40);
 
     expect(meetings.meetings.single.organizationId, 'org-1');
     expect(meetings.meetings.single.requesterId, founderId);
+    expect(meetings.meetings.single.mode, MeetingMode.inPerson);
     expect(find.text('GÖRÜŞMELERİM'), findsOneWidget);
-
-    // Incoming: an investor asks the founder for one of their own hours. The
-    // founder is the host of this one, so it lands in the other section with
-    // an answer to give.
-    final container = containerOf(tester);
-    container.read(organizationProvider.notifier).openSlot(
-      const AvailabilitySlot(time: '15:00'),
-    );
-    await advance(tester, frames: 6);
-
-    await meetings.request(
-      Meeting(
-        id: Meeting.idFor(
-          organizationId: founderId,
-          start: todayAt(15, 0),
-        ),
-        organizationId: founderId,
-        organizationName: 'Nexora Robotik',
-        requesterId: 'uid-investor',
-        requesterName: 'Deniz Arslan',
-        requesterEmail: 'deniz@ada.vc',
-        requesterCompany: 'Ada Ventures',
-        requesterKind: InvestorKind.institutional,
-        start: todayAt(15, 0),
-        end: todayAt(15, 30),
-        location: 'Networking Alanı',
-        status: MeetingStatus.requested,
-      ),
-    );
-    await advance(tester, frames: 12);
-
-    expect(find.text('TOPLANTI TALEPLERİ'), findsOneWidget);
-    expect(
-      find.text('Ada Ventures  ·  Kurumsal'),
-      findsOneWidget,
-      reason: 'the founder decides on the fund behind the request',
-    );
-
-    await tester.tap(find.text('Onayla'));
-    await advance(tester, frames: 12);
-
-    final hosted = container
-        .read(meetingsProvider)
-        .firstWhere((meeting) => meeting.organizationId == founderId);
-    expect(hosted.status, MeetingStatus.confirmed);
   });
 
-  testWidgets('an investor finds startups in the picker, ventures first', (
+  testWidgets('a founder is never asked to keep hours', (tester) async {
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository(),
+      meetings: FakeMeetingRepository(),
+    );
+    await completeEntrepreneurOnboarding(tester, auth: auth);
+
+    // The founder walks the hall asking; there is no availability grid to fill
+    // and no "you have not opened any hours yet" to answer.
+    expect(find.text('Henüz saat açmadın.'), findsNothing);
+    expect(find.text('Henüz görüşme talebin yok.'), findsOneWidget);
+
+    await tester.tap(find.text('PROFİL'));
+    await advance(tester, frames: 10);
+
+    expect(find.text('Girişim'), findsOneWidget);
+    expect(find.text('TOPLANTI SAATLERİM'), findsNothing);
+    expect(
+      containerOf(tester).read(hostedMeetingsProvider),
+      isEmpty,
+      reason: 'nothing may address a request to an account with no hours',
+    );
+  });
+
+  testWidgets('the request picker offers companies, not ventures', (
     tester,
   ) async {
+    // Only the exhibitor keeps hours, so a venture in that list could never be
+    // booked — it belongs on the floor plan and behind a QR, not here.
     final auth = FakeAuthRepository();
-    final meetings = FakeMeetingRepository();
 
     await pumpApp(
       tester,
@@ -257,10 +253,9 @@ void main() {
           brand: BrandColor.emerald,
           sector: 'Yapay Zekâ',
           stage: 'Seed',
-          availability: const [AvailabilitySlot(time: '11:00')],
         ),
       ]),
-      meetings: meetings,
+      meetings: FakeMeetingRepository(),
     );
     await completeInvestorOnboarding(tester, auth: auth);
 
@@ -269,20 +264,8 @@ void main() {
     await tester.tap(find.text('Görüşme talebi oluştur'));
     await advance(tester, frames: 10);
 
-    // Both kinds are listed, and the row says the stage rather than the sector.
-    expect(find.text('GİRİŞİMLER'), findsOneWidget);
-    expect(find.text('KURUMLAR'), findsOneWidget);
-    expect(find.text('1 saat açık  ·  Seed'), findsOneWidget);
-
-    await tester.tap(find.text('Nexora Robotik'));
-    await advance(tester, frames: 10);
-    await tester.tap(find.text('11:00'));
-    await advance(tester, frames: 6);
-    await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
-    await advance(tester, frames: 10);
-
-    expect(meetings.meetings.single.organizationId, 'startup-1');
-    expect(meetings.meetings.single.requesterCompany, 'Ada Ventures');
+    expect(find.text('Baykar'), findsOneWidget);
+    expect(find.text('Nexora Robotik'), findsNothing);
   });
 
   testWidgets('a returning founder is restored with their card', (
@@ -371,6 +354,73 @@ void main() {
       ['A1'],
       reason: 'only a booth holder may colour a box on the floor plan',
     );
+  });
+
+  testWidgets('a company saves a scanned venture to its own favourites', (
+    tester,
+  ) async {
+    // The mirror of a visitor keeping a stand: a company scans a founder's card
+    // to remember them — to hire them, or to talk later — so the save action is
+    // on every card but your own, and the list has to live somewhere the
+    // exhibitor actually looks.
+    const email = 'bilgi@baykar.com';
+    final orgId = uidFor(email);
+
+    final auth = FakeAuthRepository()..verified = true;
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([
+        exhibitor(id: orgId),
+        Organization(
+          id: 'startup-1',
+          kind: OrgKind.startup,
+          name: 'Nexora Robotik',
+          email: 'iletisim@nexora.com',
+          description: 'Otonom seyir yazılımı.',
+          brand: BrandColor.emerald,
+          sector: 'Yapay Zekâ',
+          stage: 'Seed',
+        ),
+      ]),
+      profiles: FakeProfileStore(
+        const UserProfile(
+          role: UserRole.corporate,
+          firstName: 'Baykar',
+          email: email,
+          emailVerified: true,
+        ),
+      ),
+      meetings: FakeMeetingRepository(),
+    );
+
+    await chooseRole(tester, UserRole.corporate);
+    await tester.tap(find.text('Giriş yap'));
+    await advance(tester, frames: 8);
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), email);
+    await tester.enterText(fields.at(1), 'takeoff2026');
+    await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
+    await advance(tester, frames: 16);
+
+    showOrgCardSheet(
+      tester.element(find.byType(Scaffold).first),
+      organizationId: 'startup-1',
+    );
+    await advance(tester, frames: 10);
+
+    await tester.tap(find.byIcon(Icons.bookmark_border_rounded));
+    await advance(tester, frames: 8);
+
+    final container = containerOf(tester);
+    expect(container.read(profileProvider).likedOrgIds, {'startup-1'});
+
+    Navigator.of(tester.element(find.byType(OrgCard).first)).pop();
+    await advance(tester, frames: 10);
+
+    expect(find.text('FAVORİLERİM'), findsOneWidget);
+    expect(find.text('Nexora Robotik'), findsOneWidget);
+    expect(find.text('GİRİŞİM'), findsOneWidget);
   });
 
   testWidgets('a visitor can keep a scanned venture card', (tester) async {

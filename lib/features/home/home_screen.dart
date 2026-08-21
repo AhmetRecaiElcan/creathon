@@ -18,9 +18,11 @@ import '../meetings/new_request_action.dart';
 import '../meetings/org_picker_sheet.dart';
 import '../organization/organization_controller.dart';
 import '../organization/widgets/org_card_sheet.dart';
+import '../organization/widgets/org_row.dart';
 import '../profile/profile_controller.dart';
 import '../scan/scan_screen.dart';
 import 'home_providers.dart';
+import 'widgets/home_header.dart';
 import 'widgets/meeting_card.dart';
 import 'widgets/panel_row.dart';
 import 'widgets/session_card.dart';
@@ -62,6 +64,17 @@ class HomeScreen extends ConsumerWidget {
     final hasHours = ownOrg?.availability.isNotEmpty ?? false;
     final ownPanel = ownOrg?.panelLabel == null ? null : ownOrg;
 
+    // Cards this account scanned and kept. A visitor keeps them on the agenda
+    // and an investor on their requests tab; the two card-publishing roles have
+    // nowhere else to look, so they get them here — a company saving a founder
+    // it might want to hire needs the list as much as anyone.
+    final favourites = role.publishesCard
+        ? ref
+              .watch(organizationsProvider)
+              .where((org) => profile.likedOrgIds.contains(org.id))
+              .toList(growable: false)
+        : const <Organization>[];
+
     // Read once so every card in this build agrees on what "now" means.
     final now = DateTime.now();
     final controller = ref.read(profileProvider.notifier);
@@ -89,7 +102,7 @@ class HomeScreen extends ConsumerWidget {
           ),
           children: [
             Reveal(
-              child: _HomeHeader(
+              child: HomeHeader(
                 role: role,
                 onScan: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
@@ -158,8 +171,8 @@ class HomeScreen extends ConsumerWidget {
                   onTap: () => showOrgPickerSheet(context),
                   title: 'Görüşme talebi gönder',
                   subtitle:
-                      'Saatini açan kurumları ve girişimleri listele, bir saat '
-                      'seç.',
+                      'Saatini açan kurumları listele; günü, saati ve türünü '
+                      'gör.',
                 ),
               ),
               const SizedBox(height: AppSpace.xl),
@@ -226,6 +239,15 @@ class HomeScreen extends ConsumerWidget {
                 ),
               const SizedBox(height: AppSpace.xl),
             ],
+
+            if (favourites.isNotEmpty)
+              ..._orgSection(
+                context,
+                title: 'FAVORİLERİM',
+                count: '${favourites.length} kart',
+                items: favourites,
+                delay: 240,
+              ),
 
             // Stage talks the exhibitors booked themselves. Kept separate from
             // the organiser's programme because that is what they are: a
@@ -315,6 +337,52 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
+  /// A titled list of cards, tapping through to the same sheet a scan opens.
+  ///
+  /// Returned as loose widgets rather than as one column so the sections stay
+  /// part of the page's single scrollable — a nested list here would scroll
+  /// inside the feed, which on a phone reads as a bug.
+  static List<Widget> _orgSection(
+    BuildContext context, {
+    required String title,
+    required String count,
+    required List<Organization> items,
+    required int delay,
+  }) => [
+    Reveal(
+      delay: Duration(milliseconds: delay),
+      child: SectionHeader(
+        title,
+        trailing: Text(
+          count,
+          style: AppTypography.bodySmall.copyWith(fontSize: 12),
+        ),
+      ),
+    ),
+    const SizedBox(height: AppSpace.lg),
+    for (var i = 0; i < items.length; i++)
+      Padding(
+        padding: const EdgeInsets.only(bottom: AppSpace.md),
+        child: Reveal(
+          delay: Duration(milliseconds: delay + 40 + i * 55),
+          child: OrgRow(
+            organization: items[i],
+            caption: _detailOf(items[i]),
+            onTap: () =>
+                showOrgCardSheet(context, organizationId: items[i].id),
+          ),
+        ),
+      ),
+    const SizedBox(height: AppSpace.xl),
+  ];
+
+  /// Stage first for a venture, because it is what decides whether the rest is
+  /// worth reading; a company has no stage and keeps its sector.
+  static String? _detailOf(Organization organization) {
+    final parts = [?organization.stageLabel, ?organization.sectorLabel];
+    return parts.isEmpty ? null : parts.join('  ·  ');
+  }
+
   static String _greeting(DateTime now, UserProfile profile) {
     final name = profile.firstName.trim();
     final salutation = switch (now.hour) {
@@ -334,77 +402,6 @@ class HomeScreen extends ConsumerWidget {
   }
 }
 
-class _HomeHeader extends StatelessWidget {
-  const _HomeHeader({required this.role, required this.onScan});
-
-  final UserRole role;
-  final VoidCallback onScan;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        GlassSurface(
-          radius: AppRadius.pill,
-          blur: 14,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpace.md,
-            vertical: 7,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(role.icon, size: 14, color: role.accent),
-              const SizedBox(width: 6),
-              Text(
-                role.label.toUpperCase(),
-                style: AppTypography.eyebrow.copyWith(color: role.accent),
-              ),
-            ],
-          ),
-        ),
-        const Spacer(),
-        // Scanning is the one thing a visitor does while standing in front of
-        // something, so it lives on the first screen rather than behind a tab.
-        Semantics(
-          button: true,
-          label: 'Karekod okut',
-          child: GestureDetector(
-            onTap: onScan,
-            child: GlassSurface(
-              radius: AppRadius.pill,
-              blur: 14,
-              tint: role.accent,
-              tintOpacity: 0.16,
-              borderColor: role.accent.withValues(alpha: 0.38),
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpace.md,
-                vertical: 7,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.qr_code_scanner_rounded,
-                    size: 15,
-                    color: role.accent,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'QR OKUT',
-                    style: AppTypography.eyebrow.copyWith(
-                      color: AppPalette.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 /// Shown while the programme collection is empty.
 ///
@@ -485,15 +482,15 @@ class _NoMeetings extends StatelessWidget {
             : 'Profil sekmesinden toplantı saatlerini aç; ziyaretçiler ancak o '
                   'zaman senden randevu isteyebilir.',
       ),
+      // The founder keeps no hours, so there is nothing here to go and fix —
+      // only the first request to send.
       UserRole.entrepreneur => (
-        hasHours ? Icons.handshake_outlined : Icons.event_busy_rounded,
-        hasHours ? 'Henüz görüşmen yok.' : 'Henüz saat açmadın.',
-        hasHours
-            ? 'Kartını okutan yatırımcılar senden randevu isteyebilir. Sen de '
-                  'fuar alanındaki kurumlara görüşme talebi gönderebilirsin.'
-            : 'GİRİŞİM sekmesinden görüşme saatlerini aç; yatırımcılar ancak o '
-                  'zaman senden randevu isteyebilir. Kurumlara talep göndermek '
-                  'için saat açman gerekmez.',
+        Icons.handshake_outlined,
+        'Henüz görüşme talebin yok.',
+        'Yukarıdaki listeden bir kuruma talep gönder; fuar alanında standa '
+            'dokunarak ya da standın karekodunu okutarak da ulaşabilirsin. '
+            'Kurumun açtığı saatler ve görüşmenin yüz yüze mi online mı '
+            'olduğu talep ekranında yazıyor.',
       ),
       _ => (
         Icons.handshake_outlined,

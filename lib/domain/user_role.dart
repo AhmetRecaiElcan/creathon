@@ -84,6 +84,14 @@ enum UserRole {
   bool get canRequestMeetings =>
       this == UserRole.entrepreneur || this == UserRole.investor;
 
+  /// Who keeps meeting hours and therefore can be asked for one.
+  ///
+  /// Only the exhibitor: it is the side standing still, at a booth, with a
+  /// counter and a diary. A founder publishes a card to be found and spends the
+  /// fair walking up to companies — so they send requests and never answer
+  /// them, which is why they are offered no availability grid at all.
+  bool get receivesMeetings => this == UserRole.corporate;
+
   /// Who publishes an info card at `organizations/{uid}`.
   ///
   /// The exhibitor and the founder both do, and they get the same card, the

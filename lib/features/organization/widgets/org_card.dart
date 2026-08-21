@@ -125,6 +125,28 @@ class OrgCard extends StatelessWidget {
             ),
           ],
 
+          // Where this company means to do business. Sits with the address
+          // because it answers the same question at a different scale.
+          if (organization.marketLabel != null) ...[
+            const SizedBox(height: AppSpace.sm),
+            Row(
+              children: [
+                const Icon(
+                  Icons.public_rounded,
+                  size: 15,
+                  color: AppPalette.textTertiary,
+                ),
+                const SizedBox(width: AppSpace.sm),
+                Expanded(
+                  child: Text(
+                    'Hedef pazar · ${organization.marketLabel}',
+                    style: AppTypography.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ],
+
           // A talk is a reason to come back at a particular hour, so it sits
           // with the address rather than among the contact channels.
           if (organization.panelLabel != null) ...[
@@ -228,7 +250,9 @@ class _LikeButton extends StatelessWidget {
     return Semantics(
       button: true,
       selected: liked,
-      label: liked ? 'Ajandandan çıkar' : 'Ajandana ekle',
+      // "Favourite", not "like": every audience keeps cards here, and a company
+      // saving a founder it might hire is not endorsing them.
+      label: liked ? 'Favorilerimden çıkar' : 'Favorilerime kaydet',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
@@ -250,7 +274,7 @@ class _LikeButton extends StatelessWidget {
             ),
           ),
           child: Icon(
-            liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            liked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
             size: 19,
             color: liked ? color : AppPalette.textSecondary,
           ),

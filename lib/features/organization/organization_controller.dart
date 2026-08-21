@@ -83,6 +83,14 @@ class OrganizationController extends Notifier<OrgState> {
     state = state.copyWith(organization: current.copyWith(sector: sector));
   }
 
+  /// How far this company means to reach. Empty clears it, like the other
+  /// single-select chip rows.
+  void setMarket(String market) {
+    final current = state.organization;
+    if (current == null) return;
+    state = state.copyWith(organization: current.copyWith(market: market));
+  }
+
   void setIdentity({
     required String address,
     required String description,

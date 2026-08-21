@@ -38,7 +38,13 @@ abstract final class Taxonomy {
     'Sektörü tanımak',
   ];
 
-  /// Company maturity, used for investor stage filters.
+  /// Company maturity. A venture declares where it is, an investor declares
+  /// which of these they write cheques into, and the two are matched.
+  ///
+  /// `Kurumsal` is the top of the same ladder rather than a separate list: an
+  /// established company answering "what stage are you" has to have an honest
+  /// answer, and a fund that only meets grown companies has to be able to say
+  /// so with the same chips.
   static const stages = <String>[
     'Fikir',
     'Prototip',
@@ -46,5 +52,14 @@ abstract final class Taxonomy {
     'Seed',
     'Seri A',
     'Seri B+',
+    'Kurumsal',
   ];
+
+  /// How far a company means to reach.
+  ///
+  /// The second axis after the sector, and the one that decides whether a
+  /// conversation is worth having at all: a fund that only backs companies
+  /// going global has nothing to say to a venture serving one city, however
+  /// well the fields line up.
+  static const markets = <String>['Yerel', 'Ulusal', 'Bölgesel', 'Global'];
 }

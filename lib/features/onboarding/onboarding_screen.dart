@@ -48,6 +48,7 @@ enum _Step {
   identity,
   verify,
   investorProfile,
+  investorFocus,
   sectors,
   orgDetails,
   orgLinks,
@@ -95,6 +96,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _Step.verify,
       _Step.investorProfile,
       _Step.sectors,
+      // The thesis is asked in two halves on purpose: the field is what the
+      // investor calls themselves, the level and the reach are what they screen
+      // on. Both feed the ranking on their home screen.
+      _Step.investorFocus,
       _Step.summary,
     ],
     _ => const [_Step.identity, _Step.verify, _Step.sectors, _Step.summary],
@@ -594,6 +599,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         _checkVerification(manual: true);
       case _Step.investorProfile:
         _submitInvestorProfile();
+      case _Step.investorFocus:
       case _Step.sectors:
         _goTo(_index + 1);
       case _Step.orgDetails:
@@ -752,13 +758,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       // step will not pass is spelled out instead of shown as a dead button.
       _Step.investorProfile => true,
       _Step.sectors => profile.sectors.isNotEmpty,
+      // Both halves of the screen, because either one alone would rank the
+      // whole hall on a single signal.
+      _Step.investorFocus =>
+        profile.stages.isNotEmpty && profile.markets.isNotEmpty,
       _Step.orgDetails || _Step.orgLinks || _Step.ventureDetails => true,
       _Step.standPick => orgState.organization?.standCode != null,
       // Both are chip choices with nothing to type, so the button waits for
       // them rather than complaining afterwards.
       _Step.ventureFocus =>
         orgState.organization?.stageLabel != null &&
-            orgState.organization?.sectorLabel != null,
+            orgState.organization?.sectorLabel != null &&
+            orgState.organization?.marketLabel != null,
       _Step.summary => true,
     };
   }
@@ -767,6 +778,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _Step.identity => _signInMode ? 'Giriş yap' : 'Hesabımı oluştur',
     _Step.verify => 'Doğrulamayı kontrol et',
     _Step.investorProfile ||
+    _Step.investorFocus ||
     _Step.sectors ||
     _Step.orgDetails ||
     _Step.orgLinks ||
@@ -803,6 +815,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           _investorKind = kind;
           _error = null;
         }),
+      ),
+      _Step.investorFocus => _InvestorFocusPage(
+        stages: profile.stages,
+        markets: profile.markets,
       ),
       _Step.sectors => _SectorsPage(selected: profile.sectors, role: role),
       _Step.orgDetails => OrgDetailsPage(
@@ -872,11 +888,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               ),
             ),
             Padding(
-              padding: EdgeInsets.fromLTRB(
+              // No keyboard inset here on purpose. `resizeToAvoidBottomInset`
+              // already shrinks the body by the keyboard's height, and this
+              // context sits *above* the Scaffold — so it still reports the
+              // full inset. Adding it counted the keyboard twice, which pushed
+              // the header off the top and left a keyboard-sized hole under the
+              // button.
+              padding: const EdgeInsets.fromLTRB(
                 AppSpace.xl,
                 AppSpace.md,
                 AppSpace.xl,
-                AppSpace.lg + MediaQuery.viewInsetsOf(context).bottom,
+                AppSpace.lg,
               ),
               child: _Footer(
                 message: _error ?? _hintFor(profile),
@@ -912,6 +934,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         : 'Bilgilerin yalnızca senin hesabında tutulur.',
     _Step.ventureDetails => 'Logo ve renk kartının üstünde görünür.',
     _Step.ventureFocus => _focusHint(),
+    _Step.investorFocus => _investorFocusHint(profile),
     // The investor publishes no card, so this is the one place their fund's
     // name is collected — and the request is where it becomes visible.
     _Step.investorProfile =>
@@ -931,13 +954,22 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _Step.summary => '',
   };
 
+  /// Same idea for the investor's screening criteria.
+  String _investorFocusHint(UserProfile profile) {
+    if (profile.stages.isEmpty) return 'En az bir aşama seç';
+    if (profile.markets.isEmpty) return 'En az bir hedef pazar seç';
+    return '${profile.stages.length} aşama  ·  '
+        '${profile.markets.length} pazar seçildi';
+  }
+
   /// Names whichever of the two chip answers is still missing, so the disabled
   /// button is never a dead end.
   String _focusHint() {
     final organization = ref.read(organizationProvider).organization;
     if (organization?.stageLabel == null) return 'Bir aşama seç';
     if (organization?.sectorLabel == null) return 'Bir alan seç';
-    return '${organization!.stageLabel}  ·  ${organization.sectorLabel}';
+    if (organization?.marketLabel == null) return 'Bir hedef pazar seç';
+    return organization!.focusLine!;
   }
 }
 
@@ -1504,6 +1536,84 @@ class _KindOption extends StatelessWidget {
   }
 }
 
+/// What the investor screens on: which levels they write into, and how far the
+/// company has to be reaching.
+///
+/// Multi-select on both, because a fund's mandate is a range rather than a
+/// point — "pre-seed and seed, national and regional" is the normal answer, and
+/// forcing one choice would make the ranking narrower than the investor is.
+class _InvestorFocusPage extends ConsumerWidget {
+  const _InvestorFocusPage({required this.stages, required this.markets});
+
+  final Set<String> stages;
+  final Set<String> markets;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(profileProvider.notifier);
+
+    return StepPage(
+      title: 'Neye bakıyorsun?',
+      subtitle:
+          'Ana sayfan bu iki cevaba göre sıralanır: seçtiğin aşamadaki ve '
+          'hedef pazardaki girişimler ile kurumlar en üstte çıkar.',
+      children: [
+        Reveal(
+          delay: const Duration(milliseconds: 160),
+          child: const SectionHeader('BAKTIĞIM AŞAMALAR'),
+        ),
+        const SizedBox(height: AppSpace.md),
+        Wrap(
+          spacing: AppSpace.sm,
+          runSpacing: AppSpace.sm,
+          children: [
+            for (var i = 0; i < Taxonomy.stages.length; i++)
+              Reveal(
+                delay: Duration(milliseconds: 200 + math.min(i, 8) * 26),
+                offsetY: 10,
+                child: SelectChip(
+                  label: Taxonomy.stages[i],
+                  selected: stages.contains(Taxonomy.stages[i]),
+                  onTap: () => controller.toggleStage(Taxonomy.stages[i]),
+                ),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: AppSpace.xl),
+        Reveal(
+          delay: const Duration(milliseconds: 260),
+          child: const SectionHeader('HEDEF PAZAR'),
+        ),
+        const SizedBox(height: AppSpace.sm),
+        Text(
+          'Kurum ve girişimler de aynı listeden seçiyor; "ulusal alanda iş '
+          'yapmak istiyorum" diyen bir kurum, ulusalı seçen yatırımcının '
+          'listesinde öne çıkar.',
+          style: AppTypography.bodySmall,
+        ),
+        const SizedBox(height: AppSpace.md),
+        Wrap(
+          spacing: AppSpace.sm,
+          runSpacing: AppSpace.sm,
+          children: [
+            for (var i = 0; i < Taxonomy.markets.length; i++)
+              Reveal(
+                delay: Duration(milliseconds: 300 + i * 30),
+                offsetY: 10,
+                child: SelectChip(
+                  label: Taxonomy.markets[i],
+                  selected: markets.contains(Taxonomy.markets[i]),
+                  onTap: () => controller.toggleMarket(Taxonomy.markets[i]),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _SectorsPage extends ConsumerWidget {
   const _SectorsPage({required this.selected, required this.role});
 
@@ -1598,6 +1708,19 @@ class _SummaryPage extends StatelessWidget {
               accent: role.accent,
               values: [profile.companyName],
               caption: profile.investorKind?.blurb,
+            ),
+          ),
+          const SizedBox(height: AppSpace.md),
+          Reveal(
+            delay: const Duration(milliseconds: 300),
+            child: _SummaryCard(
+              label: 'BAKTIĞIM AŞAMA VE PAZAR',
+              icon: Icons.filter_alt_rounded,
+              accent: role.accent,
+              values: profile.stages.toList(),
+              caption: profile.markets.isEmpty
+                  ? null
+                  : 'Hedef pazar: ${profile.markets.join(', ')}',
             ),
           ),
         ],

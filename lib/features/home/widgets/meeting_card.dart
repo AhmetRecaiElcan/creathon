@@ -125,6 +125,39 @@ class MeetingCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                // Day, hour and kind together. The hour alone is on the left
+                // column, but an exhibitor deciding whether to accept is asked
+                // for a slot on a particular day, in a particular form — and a
+                // card that only said "10:00" would leave both open.
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.event_rounded,
+                      size: 13,
+                      color: AppPalette.textTertiary,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        '${meeting.dayLabel}  ·  ${meeting.timeLabel}',
+                        style: AppTypography.bodySmall.copyWith(fontSize: 12.5),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Icon(meeting.mode.icon, size: 13, color: accent),
+                    const SizedBox(width: 4),
+                    Text(
+                      meeting.mode.label,
+                      style: AppTypography.bodySmall.copyWith(
+                        fontSize: 12.5,
+                        color: AppPalette.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+
                 // The address stays visible even when the fund takes the line
                 // above it: answering a request often means writing back.
                 if (asHost &&

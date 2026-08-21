@@ -64,6 +64,7 @@ class Organization {
     this.standCode,
     this.sector,
     this.stage,
+    this.market,
     this.website,
     this.instagram,
     this.linkedin,
@@ -113,6 +114,10 @@ class Organization {
   /// whether this is a conversation they can have at all, before they read a
   /// line of the description. Null on an exhibitor's card, which has no stage.
   final String? stage;
+
+  /// How far this company means to reach, from [Taxonomy.markets] — the second
+  /// thing an investor filters on after the field. Null when never answered.
+  final String? market;
 
   final String? website;
   final String? instagram;
@@ -172,6 +177,18 @@ class Organization {
     return value == null || value.isEmpty ? null : value;
   }
 
+  String? get marketLabel {
+    final value = market?.trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  /// The three things a card is matched on, as one line: `Seed · Ulusal ·
+  /// Yapay Zekâ`. Null when the card answered none of them.
+  String? get focusLine {
+    final parts = [?stageLabel, ?marketLabel, ?sectorLabel];
+    return parts.isEmpty ? null : parts.join('  ·  ');
+  }
+
   /// Short badge for a list row: the booth when there is one, otherwise what
   /// this card is. A row of names with nothing to place them is unreadable.
   String get badgeLabel =>
@@ -180,11 +197,9 @@ class Organization {
   /// The card's eyebrow line: where to find them, what they are, how far along
   /// and in which field — whichever of those exist, in that order.
   String? get cardEyebrow {
-    final parts = [
-      badgeLabel,
-      if (kind.isStartup) ?stageLabel,
-      ?sectorLabel,
-    ];
+    // The stage is on both kinds of card now: an investor filters on it, so a
+    // company that declared one has to show it as plainly as a venture does.
+    final parts = [badgeLabel, ?stageLabel, ?sectorLabel];
     // An exhibitor with no booth is mid-setup; showing a bare "KURUM" there
     // would put a label on the card where the plan says a stand goes.
     if (kind == OrgKind.corporate && standCode == null) {
@@ -311,6 +326,7 @@ class Organization {
     String? standCode,
     String? sector,
     String? stage,
+    String? market,
     String? website,
     String? instagram,
     String? linkedin,
@@ -334,6 +350,7 @@ class Organization {
       standCode: standCode ?? this.standCode,
       sector: sector ?? this.sector,
       stage: stage ?? this.stage,
+      market: market ?? this.market,
       website: website ?? this.website,
       instagram: instagram ?? this.instagram,
       linkedin: linkedin ?? this.linkedin,
@@ -356,6 +373,7 @@ class Organization {
     'standCode': standCode,
     'sector': sector,
     'stage': stage,
+    'market': market,
     'website': website,
     'instagram': instagram,
     'linkedin': linkedin,
@@ -387,6 +405,7 @@ class Organization {
       standCode: (map['standCode'] as String?)?.trim(),
       sector: map['sector'] as String?,
       stage: (map['stage'] as String?)?.trim(),
+      market: (map['market'] as String?)?.trim(),
       website: map['website'] as String?,
       instagram: map['instagram'] as String?,
       linkedin: map['linkedin'] as String?,

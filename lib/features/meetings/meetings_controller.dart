@@ -9,15 +9,14 @@ import '../profile/profile_controller.dart';
 
 /// Requests addressed to this account — the ones it answers.
 ///
-/// Only an account with a published card can receive any, and both kinds of
-/// card can: an exhibitor is asked by investors and founders, a startup is
-/// asked by investors. The founder is on both sides of the table at once, which
-/// is why the two directions are separate providers instead of one query
-/// chosen by role.
+/// Only the exhibitor keeps hours, so only the exhibitor receives any; see
+/// [UserRole.receivesMeetings]. Kept as its own provider rather than folded
+/// into one role switch because the two directions are two sections on screen,
+/// with different controls: one is answered, the other is waited on.
 final hostedMeetingsStreamProvider = StreamProvider<List<Meeting>>((ref) {
   final profile = ref.watch(profileProvider);
   final uid = profile.uid;
-  if (uid == null || !(profile.role?.publishesCard ?? false)) {
+  if (uid == null || !(profile.role?.receivesMeetings ?? false)) {
     return Stream.value(const <Meeting>[]);
   }
   return ref.watch(meetingRepositoryProvider).watchForOrganization(uid);

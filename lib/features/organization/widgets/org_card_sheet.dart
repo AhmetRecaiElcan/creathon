@@ -5,7 +5,6 @@ import '../../../core/theme/app_palette.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/glass_surface.dart';
 import '../../../data/organization_repository.dart';
-import '../../../domain/user_role.dart';
 import '../../meetings/meeting_request_sheet.dart';
 import '../../meetings/meetings_controller.dart';
 import '../../profile/profile_controller.dart';
@@ -40,10 +39,11 @@ class _OrgCardSheet extends ConsumerWidget {
     final liked = profile.likedOrgIds.contains(organizationId);
     final booked = ref.watch(meetingWithProvider(organizationId));
 
-    // Keeping a card is for anyone browsing; asking for a company's time is
-    // not. A visitor is here to see the event, so the request action belongs to
-    // the founder and the fund — see [UserRole.canRequestMeetings].
-    final isExhibitor = profile.role == UserRole.corporate;
+    // Saving a card is for everyone but its owner. A company scanning a
+    // founder's card to remember them later is the same act as a visitor
+    // keeping a stand — and asking for time is the part that is not: a visitor
+    // is here to see the event, so the request belongs to the founder and the
+    // fund (see [UserRole.canRequestMeetings]).
     final isOwnCard = profile.uid == organizationId;
     final mayRequest = profile.role?.canRequestMeetings ?? false;
     final offersSlots = organization?.availability.isNotEmpty ?? false;
@@ -63,7 +63,7 @@ class _OrgCardSheet extends ConsumerWidget {
                 : OrgCard(
                     organization: organization,
                     liked: liked,
-                    onToggleLike: isOwnCard || isExhibitor
+                    onToggleLike: isOwnCard
                         ? null
                         : () => ref
                               .read(profileProvider.notifier)

@@ -5,8 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../domain/user_role.dart';
 
 import '../../features/agenda/agenda_screen.dart';
+import '../../features/events/events_screen.dart';
 import '../../features/expo/expo_screen.dart';
 import '../../features/home/home_screen.dart';
+import '../../features/home/investor_home_screen.dart';
 import '../../features/meetings/investor_meetings_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/organization/org_card_screen.dart';
@@ -54,7 +56,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         branches: [
           StatefulShellBranch(
             routes: [
-              GoRoute(path: '/home', builder: (_, _) => const HomeScreen()),
+              GoRoute(
+                path: '/home',
+                builder: (_, _) => const _RoleScreen(
+                  visitor: HomeScreen(),
+                  corporate: HomeScreen(),
+                  // The investor's front page is a ranked list of who is on the
+                  // floor rather than a feed of what is happening; the feed
+                  // lives on their own /events tab.
+                  investor: InvestorHomeScreen(),
+                ),
+              ),
             ],
           ),
           StatefulShellBranch(
@@ -92,6 +104,14 @@ final routerProvider = Provider<GoRouter>((ref) {
                   entrepreneur: OrgProfileScreen(),
                 ),
               ),
+            ],
+          ),
+          // Fifth branch, in the bar for the investor only. It exists for every
+          // role because an indexed stack's branches are fixed — the others
+          // simply never have a tab pointing at it.
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/events', builder: (_, _) => const EventsScreen()),
             ],
           ),
         ],

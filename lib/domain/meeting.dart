@@ -100,6 +100,14 @@ class Meeting {
   String get endLabel => formatHm(end);
   String get timeLabel => '$startLabel – $endLabel';
 
+  /// `Bugün`, `Yarın`, or a date. The exhibitor answering a request has to know
+  /// which day it is for before anything else about it matters.
+  String get dayLabel => formatDay(start);
+
+  /// `Bugün · 10:00 – 10:30 · Yüz yüze` — the whole appointment in one line,
+  /// which is what both an approval screen and an agenda row need.
+  String get whenLabel => '$dayLabel  ·  $timeLabel  ·  ${mode.label}';
+
   /// One request per exhibitor per slot. Expressing that as the document id
   /// makes the slot itself the thing that can only be claimed once, which is
   /// the only way Firestore can enforce it.

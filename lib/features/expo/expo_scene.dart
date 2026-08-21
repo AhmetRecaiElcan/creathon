@@ -357,6 +357,21 @@ class _ExpoPainter extends CustomPainter {
   /// booths instead of dragging the shadows around with them.
   static const _light = Offset(-0.42, 0.91);
 
+  /// How high above the roof the sign hangs, in hall metres. Low enough to read
+  /// as signage bolted to the stand rather than a balloon above it.
+  static const _signPost = 1.3;
+
+  /// The on-screen booth width, in pixels, where signs start and finish fading
+  /// in. Below the first number the hall is colour only — which is the point:
+  /// at the default framing a booth is about 50px wide, so the plan opens as a
+  /// clean set of blocks and the marks arrive as the visitor pinches in.
+  ///
+  /// The band between the two is deliberately narrow. A half-faded plate is the
+  /// worst of both worlds — too faint to read, solid enough to hide the booth
+  /// behind it — so the fade is a snap, not a dissolve.
+  static const _signFadeStart = 66.0;
+  static const _signFadeEnd = 76.0;
+
   @override
   void paint(Canvas canvas, Size size) {
     _paintFloor(canvas);
@@ -371,10 +386,11 @@ class _ExpoPainter extends CustomPainter {
     for (final placement in ordered) {
       _paintStand(canvas, placement);
     }
-    // Labels go on afterwards so a booth in front never clips the text of the
-    // booth beside it.
+    // Signs go on afterwards, still back to front: a booth in front never
+    // clips the sign of the booth beside it, but a nearer sign does cover a
+    // farther one, which is what makes the hall read as having depth.
     for (final placement in ordered) {
-      _paintLabel(canvas, placement);
+      _paintSign(canvas, placement);
     }
   }
 
@@ -617,24 +633,45 @@ class _ExpoPainter extends CustomPainter {
     );
   }
 
-  void _paintLabel(Canvas canvas, StandPlacement placement) {
+  /// The booth's identity, as a sign standing on its roof.
+  ///
+  /// Two decisions carry this whole view. The sign is a *plate facing the
+  /// viewer* rather than a logo lying on the roof or painted on a wall: a real
+  /// fair hangs its marks on boards you can read while walking past, and a
+  /// skewed logo on a tilted surface is exactly the thing a phone screen cannot
+  /// resolve. And the plate is drawn only once the booth is wide enough on
+  /// screen to hold it — zoomed out, the hall is deliberately nothing but
+  /// coloured blocks, because eleven plates at that size land on top of each
+  /// other and turn a readable plan into a smear.
+  void _paintSign(Canvas canvas, StandPlacement placement) {
     final stand = placement.stand;
-    final center = projection.project(
+    final selected = stand.code == selectedCode;
+    final boothWidth = _screenWidthOf(stand);
+
+    // The selected booth always shows its sign: it is one plate, it cannot
+    // collide with a crowd, and it is the answer to the tap that just happened.
+    final visibility = selected
+        ? 1.0
+        : ((boothWidth - _signFadeStart) / (_signFadeEnd - _signFadeStart))
+              .clamp(0.0, 1.0);
+    if (visibility <= 0.02) return;
+
+    final roof = projection.project(
       stand.centerX,
       stand.centerY,
       ExpoLayout.standHeight,
     );
     final occupant = placement.occupant;
 
-    // Text stays upright rather than lying on the roof: a fair map is scanned,
-    // and skewed labels cost more legibility than the extra realism buys.
+    // An empty booth gets its code and nothing else — a plate would give a
+    // vacancy the same weight as a company.
     if (occupant == null) {
       _text(
         canvas,
         stand.code,
-        center,
+        roof,
         AppTypography.eyebrow.copyWith(
-          color: Colors.white.withValues(alpha: 0.62),
+          color: Colors.white.withValues(alpha: 0.62 * visibility),
           fontSize: 10,
           letterSpacing: 1,
         ),
@@ -642,7 +679,88 @@ class _ExpoPainter extends CustomPainter {
       return;
     }
 
-    // How wide the booth is on screen decides what fits on its roof.
+    final mast = projection.project(
+      stand.centerX,
+      stand.centerY,
+      ExpoLayout.standHeight + _signPost,
+    );
+    // As wide as the booth it stands on, within reason: a board much narrower
+    // than its stand reads as a sticker, and one much wider covers the aisle.
+    final plateWidth = boothWidth.clamp(58.0, 200.0);
+    final plateHeight = math.max(24.0, plateWidth * 0.42);
+    final plate = Rect.fromCenter(
+      center: mast - Offset(0, plateHeight / 2),
+      width: plateWidth,
+      height: plateHeight,
+    );
+    final rounded = RRect.fromRectAndRadius(plate, const Radius.circular(5));
+
+    // One layer for the whole sign, so the plate, its shadow, the border and
+    // the logo fade in together instead of crossing over each other.
+    final fading = visibility < 0.995;
+    if (fading) {
+      canvas.saveLayer(
+        plate.inflate(28),
+        Paint()..color = Colors.white.withValues(alpha: visibility),
+      );
+    }
+
+    canvas.drawLine(
+      roof,
+      plate.bottomCenter,
+      Paint()
+        ..color = occupant.color.withValues(alpha: 0.85)
+        ..strokeWidth = 1.6,
+    );
+
+    canvas.drawRRect(
+      rounded.shift(const Offset(0, 3)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.38)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 5),
+    );
+    // White board, brand-coloured frame — the reason a logo is legible on a
+    // dark hall floor at all, and the same trick the printed signage uses.
+    canvas.drawRRect(rounded, Paint()..color = const Color(0xFFF7F8FC));
+    canvas.drawRRect(
+      rounded,
+      Paint()
+        ..color = selected ? accent : occupant.color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = selected ? 2.6 : 1.6,
+    );
+
+    final inner = plate.deflate(5);
+    final logo = logos[occupant.organizationId];
+    if (logo != null) {
+      canvas.drawImageRect(
+        logo,
+        Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
+        _fitInside(inner, logo.width / logo.height),
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+    } else {
+      // No logo uploaded: the name is the mark, in ink on the same board.
+      _text(
+        canvas,
+        occupant.company,
+        inner.center,
+        AppTypography.label.copyWith(
+          fontSize: plateWidth > 96 ? 11.5 : 10,
+          height: 1.15,
+          color: const Color(0xFF11141F),
+        ),
+        maxWidth: inner.width,
+      );
+    }
+
+    if (fading) canvas.restore();
+  }
+
+  /// How wide this booth is in pixels right now — the measure every
+  /// zoom-dependent decision is made against, because it already folds in the
+  /// fit-to-panel scale, the user's zoom and the angle the hall is turned to.
+  double _screenWidthOf(ExpoStand stand) {
     final left = projection.project(
       stand.x,
       stand.centerY,
@@ -653,35 +771,19 @@ class _ExpoPainter extends CustomPainter {
       stand.centerY,
       ExpoLayout.standHeight,
     );
-    final boothWidth = (right - left).distance;
+    return (right - left).distance;
+  }
 
-    // The logo is the label. A hall of names is a list read one row at a time;
-    // a hall of marks is scanned at a glance, which is what a visitor standing
-    // in it actually does. The name is still one tap away on the card.
-    final logo = logos[occupant.organizationId];
-    if (logo != null && boothWidth > 26) {
-      final side = (boothWidth * 0.68).clamp(18.0, 62.0);
-      canvas.drawImageRect(
-        logo,
-        Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
-        Rect.fromCenter(center: center, width: side, height: side),
-        Paint()..filterQuality = FilterQuality.medium,
-      );
-      return;
+  /// The largest rect of [aspect] that fits inside [box], centred — a logo
+  /// squeezed to a square would misrepresent a wordmark.
+  static Rect _fitInside(Rect box, double aspect) {
+    var width = box.width;
+    var height = width / aspect;
+    if (height > box.height) {
+      height = box.height;
+      width = height * aspect;
     }
-
-    // No logo uploaded: the name has to carry the booth on its own.
-    _text(
-      canvas,
-      occupant.company,
-      center,
-      AppTypography.label.copyWith(
-        fontSize: 11,
-        color: Colors.white,
-        shadows: const [Shadow(color: Colors.black87, blurRadius: 4)],
-      ),
-      maxWidth: 96,
-    );
+    return Rect.fromCenter(center: box.center, width: width, height: height);
   }
 
   void _text(

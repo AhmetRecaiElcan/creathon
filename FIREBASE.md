@@ -72,7 +72,8 @@ kart aynı koleksiyonda durur**, `kind` alanıyla ayrılır:
   "logoBase64": "…",
   "standCode": "A3",
   "sector": "Robotik & Otonom Sistemler",
-  "stage": null,
+  "stage": "Kurumsal",
+  "market": "Ulusal",
   "website": "nexora.com",
   "instagram": "@nexora",
   "linkedin": "nexora",
@@ -97,6 +98,14 @@ Karşılığı olmayan her stant kodu gri kalır.
 
 `standCode` yayına alındıktan sonra kurallarla kilitlenir — güncelleme isteği
 aynı değeri taşımıyorsa reddedilir.
+
+`stage` (aşama/seviye) ve `market` (hedef pazar) **her iki kart türünde** de
+bulunur ve yatırımcının ana sayfasındaki sıralamayı besler: yatırımcı kayıt
+olurken hangi aşamalara ve hangi hedef pazarlara baktığını seçer, eşleşen
+kartlar üste çıkar. Girişimde üçü de zorunlu, kurumda isteğe bağlı — boş
+bırakan kurum o listede hiç öne çıkmaz. Değerler `Taxonomy.stages` (Fikir →
+Kurumsal) ve `Taxonomy.markets` (Yerel, Ulusal, Bölgesel, Global) listelerinden
+gelir.
 
 **Girişim kartı** (`kind: "startup"`) stant tutmaz: `standCode` `null` kalır,
 `stands` koleksiyonuna hiç dokunmaz ve yayına alma tek bir yazma olur — kilit
@@ -186,6 +195,11 @@ dokümanı olmaz. Bunun yerine kayıt sırasında `companyName` (şirket / fon a
 `investorKind` (`angel` = melek, `institutional` = kurumsal) alanları doldurulur;
 ikisi de zorunludur ve gönderdiği her görüşme talebinin üzerine kopyalanır.
 
+Ayrıca `stages` ve `markets` listeleri yatırımcının **sıralama ölçütüdür**:
+ana sayfası, yayındaki kartları bu üç eksene göre puanlayıp sıralar — alan 4,
+aşama 2, hedef pazar 1 puan (`lib/domain/card_match.dart`). Boş liste "tercih
+yok" demektir: eski hesaplar kapıda kalmaz, sadece sıralama kazanmaz.
+
 Uygulama yazar, elle doldurmaya gerek yok:
 
 ```json
@@ -198,6 +212,8 @@ Uygulama yazar, elle doldurmaya gerek yok:
   "wallpaper": "aurora",
   "photoBase64": "…",
   "sectors": ["…"],
+  "stages": ["Seed", "Seri A"],
+  "markets": ["Ulusal"],
   "savedEventIds": ["…"],
   "likedOrgIds": ["…"]
 }

@@ -1,5 +1,6 @@
 import 'package:creathon/data/auth_repository.dart';
 import 'package:creathon/data/profile_repository.dart';
+import 'package:creathon/domain/investor_kind.dart';
 import 'package:creathon/domain/user_profile.dart';
 import 'package:creathon/domain/user_role.dart';
 import 'package:creathon/features/profile/profile_controller.dart';
@@ -52,6 +53,41 @@ void main() {
     expect(profile.isOnboarded, isTrue);
     expect(profile.firstName, 'Elif');
     expect(profile.sectors, {'Yapay Zekâ'});
+  });
+
+  test('an account from before the new filters still gets in', () async {
+    // The investor's screening criteria were added after accounts existed. They
+    // are collected at signup but must never gate entry: an account whose
+    // document has no `stages` or `markets` has to open on the home tab, not be
+    // pushed back through onboarding for answers it was never asked for.
+    final auth = FakeAuthRepository()..verified = true;
+    await auth.signIn(email: 'deniz@ada.vc', password: 'takeoff2026');
+
+    final container = await restore(
+      auth: auth,
+      profiles: FakeProfileStore(
+        const UserProfile(
+          role: UserRole.investor,
+          uid: 'uid-2',
+          firstName: 'Deniz',
+          lastName: 'Arslan',
+          email: 'deniz@ada.vc',
+          emailVerified: true,
+          companyName: 'Ada Ventures',
+          investorKind: InvestorKind.institutional,
+          sectors: {'Yapay Zekâ'},
+        ),
+      ),
+    );
+
+    final profile = container.read(profileProvider);
+    expect(profile.stages, isEmpty);
+    expect(profile.markets, isEmpty);
+    expect(
+      profile.isOnboarded,
+      isTrue,
+      reason: 'a missing filter is "no preference", never a locked door',
+    );
   });
 
   test('no session leaves the app at the welcome screen', () async {
