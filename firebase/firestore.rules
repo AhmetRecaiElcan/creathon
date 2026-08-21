@@ -1,0 +1,90 @@
+rules_version = '2';
+
+// Take Off — visitor and exhibitor release.
+//
+// The programme, the exhibitors and the floor plan are public reads: a visitor
+// has to be able to scan a stand's QR before they have an account. Everything
+// writable is scoped to the account that owns it, and the one thing that must
+// never change — which company holds which booth — is expressed as a document
+// id so that Firestore's create-only semantics enforce it.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function verified() {
+      return request.auth != null
+             && request.auth.token.email_verified == true;
+    }
+
+    // Event programme, rendered by the home feed. Written by the organiser
+    // through the console, never from the app.
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Exhibitor info cards. Public so a scanned QR resolves for anyone; the
+    // stand code is frozen after creation so a published card can never start
+    // pointing at a different booth.
+    match /organizations/{orgId} {
+      allow read: if true;
+      allow create: if verified() && request.auth.uid == orgId;
+      allow update: if verified()
+                    && request.auth.uid == orgId
+                    && request.resource.data.standCode == resource.data.standCode;
+      // An exhibitor may withdraw entirely. Deleting a Firebase user from the
+      // console cannot reach Firestore, so without this the app could never
+      // clean up after itself and a booth would stay coloured for a company
+      // that no longer exists.
+      allow delete: if verified() && request.auth.uid == orgId;
+    }
+
+    // Booth reservations, keyed by the booth code from ExpoLayout. Create-only:
+    // Firestore rejects a create on an existing document, which is what makes
+    // "first to confirm keeps the booth" true without a transaction. Rules
+    // cannot check uniqueness across a collection, so uniqueness has to live in
+    // the document id.
+    match /stands/{standCode} {
+      allow read: if true;
+      allow create: if verified()
+                    && request.resource.data.orgId == request.auth.uid;
+      // Never updatable: a booth cannot be handed to another company, and an
+      // exhibitor cannot swap theirs. The holder may release it, which is what
+      // withdrawing the card does — so moving booths means giving up the card,
+      // the meetings and the identity, not a quiet edit.
+      allow update: if false;
+      allow delete: if verified() && resource.data.orgId == request.auth.uid;
+    }
+
+    // Meeting requests, keyed `{orgId}__{startIso}`. Create-only for the
+    // visitor, so a slot another visitor already asked for comes back refused
+    // instead of silently overwriting their request — the same document-id
+    // trick as the booth locks.
+    //
+    // Only the two parties can read a request: it carries the visitor's name
+    // and address, which is nobody else's business.
+    match /meetings/{meetingId} {
+      allow read: if request.auth != null
+                  && (resource.data.requesterId == request.auth.uid
+                      || resource.data.organizationId == request.auth.uid);
+      allow create: if verified()
+                    && request.resource.data.requesterId == request.auth.uid
+                    && request.resource.data.status == 'requested';
+      // Answering is the exhibitor's alone, and only the status may move.
+      allow update: if verified()
+                    && resource.data.organizationId == request.auth.uid
+                    && request.resource.data.diff(resource.data)
+                         .affectedKeys().hasOnly(['status']);
+      // Declining deletes the record, which frees the slot again. Either side
+      // may withdraw: the visitor cancels, the exhibitor declines.
+      allow delete: if verified()
+                    && (resource.data.organizationId == request.auth.uid
+                        || resource.data.requesterId == request.auth.uid);
+    }
+
+    // The user's own profile: name, interests, wallpaper, avatar, saved
+    // sessions and liked exhibitors.
+    match /users/{uid} {
+      allow read, write: if verified() && request.auth.uid == uid;
+    }
+  }
+}

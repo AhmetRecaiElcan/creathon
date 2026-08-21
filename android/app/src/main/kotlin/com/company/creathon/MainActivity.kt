@@ -1,4 +1,4 @@
-package com.example.creathon
+package com.company.creathon
 
 import io.flutter.embedding.android.FlutterActivity
 

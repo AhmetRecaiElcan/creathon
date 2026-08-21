@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "17666883029",
+    "project_id": "creathon-9488f",
+    "storage_bucket": "creathon-9488f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:17666883029:android:024bbff64fa4fabc48d15c",
+        "android_client_info": {
+          "package_name": "com.company.creathon"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjqFRrhY94-Oyqc8srUiwYFqvi2aeCOk0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

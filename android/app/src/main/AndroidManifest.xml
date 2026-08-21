@@ -1,4 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Firebase Auth and Firestore both talk to Google's backends, so the
+         release build needs this as well — the debug manifest only grants it
+         for the dev-time hot reload channel. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Reading stand and entry QR codes. Declared optional so the app still
+         installs on a device without a camera; the scanner screen reports the
+         problem instead of the store hiding the whole app. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+
     <application
         android:label="creathon"
         android:name="${applicationName}"
@@ -40,6 +52,20 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- url_launcher needs these to answer canLaunchUrl for the links on
+             an organisation's info card. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="mailto"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="tel"/>
         </intent>
     </queries>
 </manifest>
