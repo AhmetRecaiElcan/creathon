@@ -30,7 +30,7 @@ final savedSessionsProvider = Provider<List<EventSession>>((ref) {
 final agendaTimelineProvider = Provider<List<AgendaEntry>>((ref) {
   final entries = <AgendaEntry>[
     ...ref.watch(savedSessionsProvider).map(SessionEntry.new),
-    ...ref.watch(meetingsProvider).map(MeetingEntry.new),
+    ...ref.watch(openMeetingsProvider).map(MeetingEntry.new),
   ];
   entries.sort((a, b) => a.start.compareTo(b.start));
   return entries;

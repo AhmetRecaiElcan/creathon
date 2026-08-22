@@ -107,6 +107,22 @@ class Meeting {
       status == MeetingStatus.confirmed &&
       roomName != null;
 
+  /// Whether the meeting's half-hour is behind us.
+  ///
+  /// Takes the time rather than reading the clock so a caller that already
+  /// watches a ticking clock gets an answer consistent with the rest of the
+  /// frame — two widgets disagreeing about whether a meeting is over, because
+  /// they each looked at the clock a millisecond apart, is a real bug.
+  bool hasEndedBy(DateTime now) => now.isAfter(end);
+
+  /// A meeting that happened and is still owed a rating.
+  ///
+  /// Only a confirmed one: a request nobody ever answered did not happen, so
+  /// there is nothing to rate. Whether *this* account has already rated it is
+  /// not knowable here — that lives in the feedback collection.
+  bool awaitsFeedbackAt(DateTime now) =>
+      status == MeetingStatus.confirmed && hasEndedBy(now);
+
   /// How the requester is introduced to the host: the fund and the kind when
   /// there are any, and the address when there are not — an exhibitor should
   /// never be shown a nameless row.

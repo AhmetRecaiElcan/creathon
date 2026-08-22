@@ -127,7 +127,13 @@ class _PickerRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = Theme.of(context).colorScheme.primary;
     final booked = ref.watch(meetingWithProvider(organization.id));
-    final open = organization.bookableAvailability.length;
+
+    // Counted off the same grid the request sheet renders, rather than off the
+    // declared hours: a card that promises "18 saat açık" at five in the
+    // afternoon is a card that lies, and the visitor finds out only after
+    // tapping through to a sheet of struck-through times.
+    final slots = ref.watch(organizationSlotsProvider(organization.id));
+    final open = slots.where((slot) => slot.available).length;
 
     // Three states, and each one has to say what it is: already asked, open for
     // a request, or closed. Only the middle one is tappable.
@@ -140,7 +146,12 @@ class _PickerRow extends ConsumerWidget {
       trailing = Icon(booked.status.icon, size: 18, color: accent);
       enabled = false;
     } else if (open == 0) {
-      caption = 'Henüz görüşme saati açmadı';
+      // Two different nothings, and saying the wrong one is misleading: a card
+      // that never opened hours may open some, where a day that has run out
+      // will not come back today.
+      caption = slots.isEmpty
+          ? 'Henüz görüşme saati açmadı'
+          : 'Bugünün saatleri doldu';
       trailing = const Icon(
         Icons.event_busy_rounded,
         size: 18,
@@ -151,7 +162,7 @@ class _PickerRow extends ConsumerWidget {
       // What the row has to answer before a tap: how many hours, and of what
       // kind — walking to a booth and joining a call are different plans.
       final modes = {
-        for (final slot in organization.bookableAvailability) slot.mode,
+        for (final slot in slots.where((slot) => slot.available)) slot.mode,
       };
       final kinds = modes.map((mode) => mode.label).join(' / ');
       caption = '$open saat açık  ·  $kinds';

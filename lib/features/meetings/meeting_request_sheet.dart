@@ -299,7 +299,16 @@ class _SlotChip extends StatelessWidget {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (blocked)
+                  if (slot.isPast)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 6),
+                      child: Icon(
+                        Icons.history_rounded,
+                        size: 13,
+                        color: AppPalette.textTertiary,
+                      ),
+                    )
+                  else if (blocked)
                     const Padding(
                       padding: EdgeInsets.only(right: 6),
                       child: Icon(
@@ -315,7 +324,18 @@ class _SlotChip extends StatelessWidget {
                     ),
                   Text(
                     '${slot.label} – ${slot.offer.endTime}',
-                    style: AppTypography.label.copyWith(color: foreground),
+                    style: AppTypography.label.copyWith(
+                      color: foreground,
+                      // Struck through only for an hour that has passed, not for
+                      // every blocked one: a slot someone else took is still a
+                      // real offer for a real time, where this one is the day
+                      // having moved on. The two should not look alike.
+                      decoration: slot.isPast
+                          ? TextDecoration.lineThrough
+                          : null,
+                      decorationColor: AppPalette.textTertiary,
+                      decorationThickness: 1.6,
+                    ),
                   ),
                 ],
               ),

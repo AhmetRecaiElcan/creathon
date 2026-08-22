@@ -139,7 +139,7 @@ class ProfileScreen extends ConsumerWidget {
                         // requests sent. A visitor's is the day they built.
                         if (role == UserRole.investor)
                           _Counter(
-                            value: ref.watch(meetingsProvider).length,
+                            value: ref.watch(openMeetingsProvider).length,
                             label: 'GÖRÜŞME',
                           )
                         else

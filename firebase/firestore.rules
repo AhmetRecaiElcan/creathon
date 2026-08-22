@@ -86,6 +86,30 @@ service cloud.firestore {
                         || resource.data.requesterId == request.auth.uid);
     }
 
+    // Ratings left on meetings that happened, keyed `{meetingId}__{authorId}`.
+    // One per party per meeting, enforced by the document id the same way the
+    // slots and the booths are.
+    //
+    // Read by the author alone. Neither side sees the other's rating: mutual
+    // visibility turns a rating into a courtesy score, where everyone gives
+    // five stars and the collection says nothing. The organiser reads these
+    // from the console, which rules do not gate.
+    match /meetingFeedback/{feedbackId} {
+      allow read: if verified()
+                  && resource.data.authorId == request.auth.uid;
+      allow create: if verified()
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.rating is int
+                    && request.resource.data.rating >= 1
+                    && request.resource.data.rating <= 5;
+      // Never editable and never removable. A rating you can go back and change
+      // is a rating you can be talked into changing, and the whole point of
+      // asking is to find out what the meeting was actually like. It also means
+      // "I have rated this" stays true, which is what retires the meeting from
+      // the author's screens.
+      allow update, delete: if false;
+    }
+
     // The user's own profile: name, interests, wallpaper, avatar, saved
     // sessions and liked exhibitors.
     match /users/{uid} {

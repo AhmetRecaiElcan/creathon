@@ -1,9 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/meeting_feedback_repository.dart';
 import '../../data/meeting_repository.dart';
+import '../../core/util/clock.dart';
 import '../../data/organization_repository.dart';
 import '../../domain/meeting.dart';
 import '../../domain/availability_slot.dart';
+import '../../domain/meeting_feedback.dart';
 import '../../domain/meeting_room.dart';
 import '../../domain/organization.dart';
 import '../profile/profile_controller.dart';
@@ -55,10 +58,62 @@ final meetingsProvider = Provider<List<Meeting>>((ref) {
   return all;
 });
 
+/// Every meeting this account has already rated.
+///
+/// Rating one is what retires it: the record stays in Firestore — it is the
+/// only way back to what was said — but it leaves this person's screens, which
+/// is what "the meeting is done with" means from the inside. The other party
+/// keeps seeing theirs until they rate it too.
+final ratedMeetingIdsProvider = Provider<Set<String>>((ref) {
+  final feedback = ref.watch(myFeedbackStreamProvider).value ?? const [];
+  return {for (final entry in feedback) entry.meetingId};
+});
+
+final myFeedbackStreamProvider = StreamProvider<List<MeetingFeedback>>((ref) {
+  final uid = ref.watch(profileProvider).uid;
+  if (uid == null) return Stream.value(const <MeetingFeedback>[]);
+  return ref.watch(meetingFeedbackRepositoryProvider).watchByAuthor(uid);
+});
+
+/// What the screens show: everything this account is a party to, minus what it
+/// has already rated.
+///
+/// Kept separate from [meetingsProvider] rather than replacing it, because two
+/// callers genuinely need the unfiltered set — the account teardown, which has
+/// to delete every meeting including the retired ones, and the clash checks,
+/// which are about the calendar rather than about what is on screen.
+final openMeetingsProvider = Provider<List<Meeting>>((ref) {
+  final rated = ref.watch(ratedMeetingIdsProvider);
+  if (rated.isEmpty) return ref.watch(meetingsProvider);
+  return ref
+      .watch(meetingsProvider)
+      .where((meeting) => !rated.contains(meeting.id))
+      .toList(growable: false);
+});
+
+final openHostedMeetingsProvider = Provider<List<Meeting>>((ref) {
+  final rated = ref.watch(ratedMeetingIdsProvider);
+  return ref
+      .watch(hostedMeetingsProvider)
+      .where((meeting) => !rated.contains(meeting.id))
+      .toList(growable: false);
+});
+
+final openSentMeetingsProvider = Provider<List<Meeting>>((ref) {
+  final rated = ref.watch(ratedMeetingIdsProvider);
+  return ref
+      .watch(sentMeetingsProvider)
+      .where((meeting) => !rated.contains(meeting.id))
+      .toList(growable: false);
+});
+
 /// The meeting already arranged with a given exhibitor, if any. Lets the info
 /// card swap "request a meeting" for its booked state.
+///
+/// Reads the open set: a meeting that has happened and been rated must stop
+/// claiming the card, or the two would never be able to meet again.
 final meetingWithProvider = Provider.family<Meeting?, String>((ref, orgId) {
-  for (final meeting in ref.watch(meetingsProvider)) {
+  for (final meeting in ref.watch(openMeetingsProvider)) {
     if (meeting.organizationId == orgId) return meeting;
   }
   return null;
@@ -69,6 +124,13 @@ class MeetingsController {
   const MeetingsController(this._ref);
 
   final Ref _ref;
+
+  /// The same clock the availability grid is drawn from.
+  ///
+  /// Reading `DateTime.now()` here instead would let the controller and the
+  /// grid disagree about whether an hour has passed — the grid offers a slot,
+  /// the controller refuses it, and nobody can tell which is right.
+  DateTime get _now => _ref.read(clockProvider);
 
   /// Asks [organization] for [start]. Throws [SlotTakenFailure] when another
   /// visitor claimed the slot first, or [MeetingFailure] otherwise.
@@ -83,6 +145,16 @@ class MeetingsController {
     final uid = profile.uid;
     if (uid == null) {
       throw const MeetingFailure('Önce hesabını oluşturman gerekiyor.');
+    }
+
+    // The grid already closes an hour that has gone by, but it is a rendered
+    // list and the clock keeps moving: a sheet left open across the half-hour
+    // could still send this. Checked again here so the answer does not depend
+    // on how long the sheet was on screen.
+    if (!start.isAfter(_now)) {
+      throw const MeetingFailure(
+        'Bu saatin üzerinden zaman geçti. İleri bir saat seç.',
+      );
     }
 
     final trimmed = note?.trim();
@@ -125,6 +197,43 @@ class MeetingsController {
   ///
   /// A room already on the record is kept: re-confirming must not move the
   /// meeting somewhere the other side is not looking.
+  /// Records this account's verdict on a meeting that has happened.
+  ///
+  /// Both sides rate independently, so the author is stamped on rather than
+  /// inferred: the same meeting produces two documents, and which one is yours
+  /// is the only thing that distinguishes them.
+  Future<void> submitFeedback({
+    required Meeting meeting,
+    required int rating,
+    String? note,
+  }) async {
+    final profile = _ref.read(profileProvider);
+    final uid = profile.uid;
+    if (uid == null) {
+      throw const FeedbackFailure('Önce oturum açman gerekiyor.');
+    }
+
+    final asHost = meeting.organizationId == uid;
+    final trimmed = note?.trim();
+
+    await _ref.read(meetingFeedbackRepositoryProvider).submit(
+      MeetingFeedback(
+        id: MeetingFeedback.idFor(meetingId: meeting.id, authorId: uid),
+        meetingId: meeting.id,
+        authorId: uid,
+        organizationId: meeting.organizationId,
+        // Who the author actually sat across from, which is the other side
+        // whichever side they are on.
+        counterpartName: asHost
+            ? meeting.requesterName
+            : meeting.organizationName,
+        rating: rating,
+        note: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
+        submittedAt: _now,
+      ),
+    );
+  }
+
   Future<void> respond(Meeting meeting, MeetingStatus status) {
     final needsRoom =
         status == MeetingStatus.confirmed &&
@@ -160,7 +269,12 @@ final organizationSlotsProvider =
 
       final ownMeetings = ref.watch(meetingsProvider);
       final ownUid = ref.watch(profileProvider).uid;
-      final now = DateTime.now();
+
+      // The ticking clock, not `DateTime.now()`. An hour that has already gone
+      // by has to close itself while the sheet is open — a grid that only
+      // notices the time when it is first built will happily sell you 14:00 at
+      // half past two.
+      final now = ref.watch(clockProvider);
 
       final slots = <OrganizationSlot>[];
       for (final offer in organization.bookableAvailability) {
@@ -181,6 +295,10 @@ final organizationSlotsProvider =
             offer: offer,
             start: start,
             end: end,
+            // Measured against the slot's *start*: a meeting cannot begin in
+            // the past, and 14:00 stops being bookable at 14:00 rather than at
+            // half past, when it would already be half over.
+            isPast: !start.isAfter(now),
             clash: own,
             isWithThisOrganization: own?.organizationId == orgId,
             // A founder who has been booked by an investor is busy at that
@@ -201,6 +319,7 @@ class OrganizationSlot {
     required this.end,
     required this.clash,
     required this.isWithThisOrganization,
+    this.isPast = false,
     this.clashIsHosted = false,
   });
 
@@ -215,6 +334,14 @@ class OrganizationSlot {
   MeetingMode get mode => offer.mode;
   String? get note => offer.note;
 
+  /// Whether this hour has already come and gone.
+  ///
+  /// Kept in the list rather than filtered out, like the clashes are: a grid
+  /// that silently shrank through the afternoon would look like the company was
+  /// closing hours one by one. Struck through, it reads as what it is — the day
+  /// moving on.
+  final bool isPast;
+
   /// The visitor's own meeting occupying this time, if any.
   final Meeting? clash;
 
@@ -226,9 +353,14 @@ class OrganizationSlot {
   /// asked for — the founder's case, where the other party is the requester.
   final bool clashIsHosted;
 
-  bool get available => clash == null;
+  bool get available => clash == null && !isPast;
 
   String? get blockedReason {
+    // Checked before the clash: an hour that is gone is gone whatever else was
+    // standing in its way, and "14:00 ile toplantın var" about an hour nobody
+    // can book any more would be the wrong thing to explain.
+    if (isPast) return 'Saati geçti';
+
     final clash = this.clash;
     if (clash == null) return null;
     if (isWithThisOrganization) return 'Bu saat için talebin gönderildi';

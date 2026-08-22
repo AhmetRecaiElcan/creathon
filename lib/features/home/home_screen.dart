@@ -50,8 +50,8 @@ class HomeScreen extends ConsumerWidget {
 
     // Two directions, not one list: a founder answers investors *and* asks
     // companies, and those are different sections with different controls.
-    final hosted = ref.watch(hostedMeetingsProvider);
-    final sent = ref.watch(sentMeetingsProvider);
+    final hosted = ref.watch(openHostedMeetingsProvider);
+    final sent = ref.watch(openSentMeetingsProvider);
 
     final isCorporate = role == UserRole.corporate;
     final publishesCard = role.publishesCard;

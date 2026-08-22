@@ -6,6 +6,7 @@ import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
 import 'package:creathon/domain/user_role.dart';
 import 'package:creathon/data/meeting_link_repository.dart';
+import 'package:creathon/data/meeting_repository.dart';
 import 'package:creathon/data/organization_repository.dart';
 import 'package:creathon/features/meetings/meetings_controller.dart';
 import 'package:creathon/features/meetings/meeting_request_sheet.dart';
@@ -37,10 +38,17 @@ void main() {
     availability: [for (final time in slots) AvailabilitySlot(time: time)],
   );
 
-  DateTime todayAt(int hour, int minute) {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day, hour, minute);
-  }
+  /// An hour on the day the suite pretends it is. Built off [testNow] rather
+  /// than the wall clock, so "10:00" is a fixed distance from "now" whenever
+  /// the tests actually run.
+  DateTime todayAt(int hour, int minute) =>
+      DateTime(testNow.year, testNow.month, testNow.day, hour, minute);
+
+  /// A half-hour still ahead of the pinned clock — the bookable, joinable case.
+  DateTime upcoming() => testNow.add(const Duration(hours: 2));
+
+  /// A half-hour behind the pinned clock — the rating case.
+  DateTime finished() => testNow.subtract(const Duration(hours: 2));
 
   Meeting requestFor(
     DateTime start, {
@@ -149,6 +157,91 @@ void main() {
     );
   });
 
+  testWidgets('an hour that has passed is struck through, not offered', (
+    tester,
+  ) async {
+    final auth = FakeAuthRepository();
+    final meetings = FakeMeetingRepository();
+
+    await pumpApp(
+      tester,
+      auth: auth,
+      // 07:00 is behind the pinned clock, 10:00 is ahead of it.
+      organizations: FakeOrganizationRepository([
+        exhibitor(slots: const {'07:00', '10:00'}),
+      ]),
+      meetings: meetings,
+    );
+    await completeOnboarding(tester, auth: auth);
+
+    final container = containerOf(tester);
+    container.listen(organizationsStreamProvider, (_, _) {});
+    await advance(tester, frames: 6);
+
+    final slots = container.read(organizationSlotsProvider('org-1'));
+    final gone = slots.firstWhere((slot) => slot.label == '07:00');
+    final ahead = slots.firstWhere((slot) => slot.label == '10:00');
+
+    // Kept in the list rather than filtered out, so the grid does not appear to
+    // shrink through the day — but closed, and saying why.
+    expect(gone.isPast, isTrue);
+    expect(gone.available, isFalse);
+    expect(gone.blockedReason, 'Saati geçti');
+    expect(ahead.available, isTrue);
+
+    showMeetingRequestSheet(
+      tester.element(find.byType(Scaffold).first),
+      organization: exhibitor(slots: const {'07:00', '10:00'}),
+    );
+    await advance(tester, frames: 10);
+
+    // Both visible, and tapping the gone one selects nothing — so sending is
+    // still refused for want of a choice.
+    expect(find.text('07:00 – 07:30'), findsOneWidget);
+    expect(find.text('10:00 – 10:30'), findsOneWidget);
+    await tester.tap(find.text('07:00 – 07:30'));
+    await advance(tester, frames: 6);
+    await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
+    await advance(tester, frames: 10);
+
+    expect(meetings.meetings, isEmpty);
+    expect(find.text('Bir saat seç.'), findsOneWidget);
+  });
+
+  testWidgets('the controller refuses a past hour even if the grid offered it', (
+    tester,
+  ) async {
+    // The grid is a rendered list and the clock keeps moving: a sheet left open
+    // across the half-hour would otherwise still send. This is the second gate.
+    final auth = FakeAuthRepository();
+    final meetings = FakeMeetingRepository();
+
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([exhibitor()]),
+      meetings: meetings,
+    );
+    await completeOnboarding(tester, auth: auth);
+
+    final start = todayAt(7, 0);
+    await expectLater(
+      containerOf(tester).read(meetingsControllerProvider).request(
+        organization: exhibitor(),
+        start: start,
+        end: start.add(const Duration(minutes: 30)),
+      ),
+      throwsA(
+        isA<MeetingFailure>().having(
+          (failure) => failure.message,
+          'message',
+          contains('üzerinden zaman geçti'),
+        ),
+      ),
+    );
+    expect(meetings.meetings, isEmpty);
+  });
+
   testWidgets('an exhibitor sees the request on its home and can accept it', (
     tester,
   ) async {
@@ -219,7 +312,7 @@ void main() {
     final auth = FakeAuthRepository()..verified = true;
     final meetings = FakeMeetingRepository([
       requestFor(
-        todayAt(10, 0),
+        upcoming(),
         organizationId: orgId,
         mode: MeetingMode.online,
       ),
@@ -282,7 +375,7 @@ void main() {
     final orgId = uidFor(email);
 
     final auth = FakeAuthRepository()..verified = true;
-    final start = todayAt(10, 0);
+    final start = upcoming();
     final meetings = FakeMeetingRepository([
       requestFor(
         start,
@@ -328,5 +421,182 @@ void main() {
     expect(find.text('Toplantı henüz onaylanmadı.'), findsOneWidget);
     // And the button is usable again rather than stuck mid-spinner.
     expect(find.text('Görüşmeye katıl'), findsOneWidget);
+  });
+
+  /// Signs the given exhibitor in and lands on its home screen, which is where
+  /// both a request and a finished meeting show up.
+  Future<FakeMeetingFeedbackRepository> signInHost(
+    WidgetTester tester, {
+    required String email,
+    required FakeMeetingRepository meetings,
+    required Organization org,
+  }) async {
+    final auth = FakeAuthRepository()..verified = true;
+    final feedback = FakeMeetingFeedbackRepository();
+
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([org]),
+      profiles: FakeProfileStore(
+        UserProfile(
+          role: UserRole.corporate,
+          firstName: 'Nexora Robotik',
+          email: email,
+          emailVerified: true,
+        ),
+      ),
+      meetings: meetings,
+      feedback: feedback,
+    );
+
+    await chooseRole(tester, UserRole.corporate);
+    await tester.tap(find.text('Giriş yap'));
+    await advance(tester, frames: 8);
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), email);
+    await tester.enterText(fields.at(1), 'takeoff2026');
+    await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
+    await advance(tester, frames: 16);
+
+    return feedback;
+  }
+
+  testWidgets('a meeting whose hour has passed asks to be rated, then goes', (
+    tester,
+  ) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+    final past = finished();
+
+    final meetings = FakeMeetingRepository([
+      requestFor(
+        past,
+        organizationId: orgId,
+      ).copyWith(status: MeetingStatus.confirmed),
+    ]);
+
+    final feedback = await signInHost(
+      tester,
+      email: email,
+      meetings: meetings,
+      org: exhibitor(id: orgId),
+    );
+
+    // The hour is behind us, so the card says so on its own — nobody pressed
+    // anything to make this happen. And the answer buttons are gone: accepting
+    // a meeting that already took place is nonsense.
+    expect(find.text('Tamamlandı'), findsOneWidget);
+    expect(find.text('Değerlendir'), findsOneWidget);
+    expect(find.text('Onayla'), findsNothing);
+
+    await tester.tap(find.text('Değerlendir'));
+    await advance(tester, frames: 12);
+
+    expect(find.text('GÖRÜŞME TAMAMLANDI'), findsOneWidget);
+    // Nothing preselected, and sending without a star is refused rather than
+    // silently recording one.
+    expect(find.text('Beş yıldız üzerinden puanla'), findsOneWidget);
+    await tester.tap(
+      find.widgetWithText(AccentButton, 'Değerlendirmeyi gönder'),
+    );
+    await advance(tester, frames: 8);
+    expect(feedback.entries, isEmpty);
+    expect(find.text('Bir yıldız seç.'), findsOneWidget);
+
+    await tester.tap(find.bySemanticsLabel('4 yıldız'));
+    await advance(tester, frames: 6);
+    expect(find.text('Verimliydi'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, 'Pilot konuşuldu.');
+    await tester.tap(
+      find.widgetWithText(AccentButton, 'Değerlendirmeyi gönder'),
+    );
+    await advance(tester, frames: 30);
+
+    final entry = feedback.entries.single;
+    expect(entry.rating, 4);
+    expect(entry.note, 'Pilot konuşuldu.');
+    expect(entry.authorId, orgId);
+    expect(
+      entry.counterpartName,
+      'Elif Tunca',
+      reason: 'the host rated the person across the table, not themselves',
+    );
+
+    // The meeting is retired from this account's screens, but the record it
+    // rated is still in Firestore — the rating would otherwise point at
+    // nothing.
+    await advance(tester, frames: 20);
+    expect(find.text('Değerlendir'), findsNothing);
+    expect(find.text('Tamamlandı'), findsNothing);
+    expect(meetings.meetings, hasLength(1));
+  });
+
+  testWidgets('an in-person meeting is rated the same way', (tester) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+
+    final meetings = FakeMeetingRepository([
+      requestFor(
+        finished(),
+        organizationId: orgId,
+      ).copyWith(status: MeetingStatus.confirmed),
+    ]);
+
+    final feedback = await signInHost(
+      tester,
+      email: email,
+      meetings: meetings,
+      org: exhibitor(id: orgId),
+    );
+
+    // Nothing about the rating depends on how the two met — a booth visit that
+    // is over is as finished as a call that is over.
+    expect(find.text('Yüz yüze'), findsOneWidget);
+    expect(find.text('Tamamlandı'), findsOneWidget);
+    expect(find.text('Görüşmeye katıl'), findsNothing);
+
+    await tester.tap(find.text('Değerlendir'));
+    await advance(tester, frames: 12);
+    await tester.tap(find.bySemanticsLabel('5 yıldız'));
+    await advance(tester, frames: 6);
+    await tester.tap(
+      find.widgetWithText(AccentButton, 'Değerlendirmeyi gönder'),
+    );
+    await advance(tester, frames: 30);
+
+    expect(feedback.entries.single.rating, 5);
+    expect(
+      feedback.entries.single.note,
+      isNull,
+      reason: 'the words are optional; demanding them yields "iyiydi"',
+    );
+    await advance(tester, frames: 20);
+    expect(find.text('Değerlendir'), findsNothing);
+  });
+
+  testWidgets('a meeting still ahead of us is not rateable', (tester) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+
+    final meetings = FakeMeetingRepository([
+      requestFor(
+        upcoming(),
+        organizationId: orgId,
+      ).copyWith(status: MeetingStatus.confirmed),
+    ]);
+
+    await signInHost(
+      tester,
+      email: email,
+      meetings: meetings,
+      org: exhibitor(id: orgId),
+    );
+
+    expect(find.text('Onaylandı'), findsOneWidget);
+    expect(find.text('Tamamlandı'), findsNothing);
+    expect(find.text('Değerlendir'), findsNothing);
   });
 }

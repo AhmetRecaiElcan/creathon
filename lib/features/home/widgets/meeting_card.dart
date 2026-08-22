@@ -5,13 +5,15 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/app_palette.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/glass_surface.dart';
+import '../../../core/util/clock.dart';
 import '../../../data/meeting_link_repository.dart';
 import '../../../domain/meeting.dart';
+import '../../meetings/meeting_feedback_sheet.dart';
 
 /// A meeting on the agenda. Shares the time-column layout with [SessionCard] so
 /// a mixed timeline still reads as one schedule, but carries the accent fill
 /// because this is a commitment the user made rather than a listing.
-class MeetingCard extends StatelessWidget {
+class MeetingCard extends ConsumerWidget {
   const MeetingCard({
     super.key,
     required this.meeting,
@@ -32,8 +34,14 @@ class MeetingCard extends StatelessWidget {
   final VoidCallback? onDecline;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final accent = Theme.of(context).colorScheme.primary;
+
+    // Read from the ticking clock rather than `DateTime.now()`, so the card
+    // turns itself over the moment the meeting ends instead of waiting for the
+    // user to leave the screen and come back.
+    final awaitsFeedback = meeting.awaitsFeedbackAt(nowOf(ref));
+
     final headline = asHost ? meeting.requesterName : meeting.organizationName;
     // The host is deciding who to give a slot to, so they get the fund and the
     // kind; the requester already knows who they asked and needs the place.
@@ -90,15 +98,23 @@ class MeetingCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: AppSpace.sm),
+                    // A meeting that has happened says so on both sides, in
+                    // place of the stored status: "Onaylandı" on an hour that
+                    // is already behind you tells you nothing you need.
                     Icon(
-                      meeting.status.icon,
+                      awaitsFeedback
+                          ? Icons.task_alt_rounded
+                          : meeting.status.icon,
                       size: 12,
-                      color: AppPalette.textTertiary,
+                      color: awaitsFeedback ? accent : AppPalette.textTertiary,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      meeting.status.label,
-                      style: AppTypography.eyebrow.copyWith(letterSpacing: 0.6),
+                      awaitsFeedback ? 'Tamamlandı' : meeting.status.label,
+                      style: AppTypography.eyebrow.copyWith(
+                        letterSpacing: 0.6,
+                        color: awaitsFeedback ? accent : null,
+                      ),
                     ),
                   ],
                 ),
@@ -204,20 +220,36 @@ class MeetingCard extends StatelessWidget {
                 // answer buttons below: by the time a room exists the request
                 // has already been accepted, so the only thing left to do with
                 // this card is walk into the call.
-                if (meeting.isJoinable) ...[
+                // Once the half-hour is behind us the only thing left to do is
+                // say how it went, so the rating replaces both the join link
+                // and the answer buttons rather than sitting alongside them —
+                // accepting a meeting that already happened is nonsense, and a
+                // call nobody is in is a dead end.
+                if (awaitsFeedback) ...[
+                  const SizedBox(height: AppSpace.md),
+                  _CardAction(
+                    label: 'Değerlendir',
+                    icon: Icons.star_rounded,
+                    color: accent,
+                    filled: true,
+                    onTap: () =>
+                        showMeetingFeedbackSheet(context, meeting: meeting),
+                  ),
+                ] else if (meeting.isJoinable) ...[
                   const SizedBox(height: AppSpace.md),
                   // The name the other side will see is not passed in: the
                   // function picks it from the meeting record by which party is
                   // calling, so the app cannot claim to be someone else.
                   _JoinAction(meeting: meeting, color: accent),
                 ],
-                if (onAccept != null || onDecline != null) ...[
+                if (!awaitsFeedback && (onAccept != null || onDecline != null))
+                  ...[
                   const SizedBox(height: AppSpace.md),
                   Row(
                     children: [
                       if (onAccept != null)
                         Expanded(
-                          child: _Action(
+                          child: _CardAction(
                             label: 'Onayla',
                             icon: Icons.check_rounded,
                             color: AppPalette.success,
@@ -228,7 +260,7 @@ class MeetingCard extends StatelessWidget {
                         const SizedBox(width: AppSpace.sm),
                       if (onDecline != null)
                         Expanded(
-                          child: _Action(
+                          child: _CardAction(
                             label: 'Reddet',
                             icon: Icons.close_rounded,
                             color: AppPalette.danger,
@@ -367,23 +399,31 @@ class _JoinActionState extends ConsumerState<_JoinAction> {
   }
 }
 
-/// Host-side answer button. Outlined rather than filled: two filled buttons
-/// side by side would both read as the recommended action.
-class _Action extends StatelessWidget {
-  const _Action({
+/// A button on the card.
+///
+/// Outlined by default: the accept/decline pair sits side by side, and two
+/// filled buttons would both read as the recommended action. [filled] is for
+/// the cases where there is only one thing to do — rating a finished meeting —
+/// and being subtle about it would just make it hard to find.
+class _CardAction extends StatelessWidget {
+  const _CardAction({
     required this.label,
     required this.icon,
     required this.color,
     required this.onTap,
+    this.filled = false,
   });
 
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final bool filled;
 
   @override
   Widget build(BuildContext context) {
+    final foreground = filled ? AppPalette.ink : color;
+
     return Semantics(
       button: true,
       label: label,
@@ -394,17 +434,22 @@ class _Action extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: AppSpace.md),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadius.md),
-            color: color.withValues(alpha: 0.14),
-            border: Border.all(color: color.withValues(alpha: 0.42)),
+            color: color.withValues(alpha: filled ? 0.9 : 0.14),
+            border: filled
+                ? null
+                : Border.all(color: color.withValues(alpha: 0.42)),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 15, color: color),
+              Icon(icon, size: 15, color: foreground),
               const SizedBox(width: 6),
               Text(
                 label,
-                style: AppTypography.label.copyWith(fontSize: 13, color: color),
+                style: AppTypography.label.copyWith(
+                  fontSize: 13,
+                  color: foreground,
+                ),
               ),
             ],
           ),

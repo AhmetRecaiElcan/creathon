@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:creathon/app.dart';
+import 'package:creathon/core/util/clock.dart';
 import 'package:creathon/data/auth_repository.dart';
 import 'package:creathon/data/event_repository.dart';
+import 'package:creathon/data/meeting_feedback_repository.dart';
 import 'package:creathon/data/meeting_link_repository.dart';
 import 'package:creathon/data/meeting_repository.dart';
 import 'package:creathon/data/organization_repository.dart';
@@ -10,6 +12,7 @@ import 'package:creathon/data/profile_repository.dart';
 import 'package:creathon/domain/event_session.dart';
 import 'package:creathon/domain/investor_kind.dart';
 import 'package:creathon/domain/meeting.dart';
+import 'package:creathon/domain/meeting_feedback.dart';
 import 'package:creathon/domain/org_kind.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
@@ -31,6 +34,22 @@ Future<void> loadAppFonts() async {
     ..addFont(rootBundle.load('assets/fonts/Manrope.ttf'));
   await loader.load();
 }
+
+/// The instant every widget test runs at.
+///
+/// Tests used to read the wall clock, and once the app started closing hours
+/// that had gone by, that made them pass in the morning and fail after lunch:
+/// an availability grid shuts a slot the moment it passes, and a finished
+/// meeting offers a rating instead of a join link. Both are correct behaviour
+/// and both are untestable against a clock that keeps moving.
+///
+/// Eight in the morning of today, so the whole 09:00–17:30 grid is still ahead
+/// and `Bugün` is still the right day label. Anything a test needs in the past
+/// or the future should be built from this rather than from `DateTime.now()`.
+final DateTime testNow = () {
+  final today = DateTime.now();
+  return DateTime(today.year, today.month, today.day, 8);
+}();
 
 /// Steps the clock forward one short frame at a time.
 ///
@@ -254,6 +273,39 @@ class FakeMeetingLinkRepository implements MeetingLinkRepository {
   }
 }
 
+/// In-memory rating store, including the one-per-party-per-meeting rule.
+class FakeMeetingFeedbackRepository implements MeetingFeedbackRepository {
+  FakeMeetingFeedbackRepository([List<MeetingFeedback> seed = const []])
+    : _entries = [...seed];
+
+  final List<MeetingFeedback> _entries;
+  final _changes = StreamController<List<MeetingFeedback>>.broadcast();
+
+  List<MeetingFeedback> get entries => List.unmodifiable(_entries);
+
+  @override
+  Stream<List<MeetingFeedback>> watchByAuthor(String uid) async* {
+    yield [for (final e in _entries) if (e.authorId == uid) e];
+    yield* _changes.stream.map(
+      (all) => [for (final e in all) if (e.authorId == uid) e],
+    );
+  }
+
+  @override
+  Future<void> submit(MeetingFeedback feedback) async {
+    if (!MeetingFeedback.isValidRating(feedback.rating)) {
+      throw const FeedbackFailure('Bir ile beş yıldız arası bir puan ver.');
+    }
+    // Create-only, like the rules: a second rating on the same meeting is
+    // refused rather than replacing the first.
+    if (_entries.any((other) => other.id == feedback.id)) {
+      throw const FeedbackFailure('Bu görüşmeyi zaten değerlendirdin.');
+    }
+    _entries.add(feedback);
+    _changes.add(List.of(_entries));
+  }
+}
+
 /// In-memory meeting store, including the one-request-per-slot rule.
 class FakeMeetingRepository implements MeetingRepository {
   FakeMeetingRepository([List<Meeting> seed = const []])
@@ -339,6 +391,7 @@ Future<void> pumpApp(
   FakeOrganizationRepository? organizations,
   FakeMeetingRepository? meetings,
   FakeMeetingLinkRepository? links,
+  FakeMeetingFeedbackRepository? feedback,
   List<EventSession> sessions = const [],
 }) async {
   // A realistic phone viewport: on the default 800x600 test surface the lower
@@ -360,7 +413,11 @@ Future<void> pumpApp(
           meetingRepositoryProvider.overrideWithValue(meetings),
         if (links != null)
           meetingLinkRepositoryProvider.overrideWithValue(links),
+        if (feedback != null)
+          meetingFeedbackRepositoryProvider.overrideWithValue(feedback),
         eventsStreamProvider.overrideWith((ref) => Stream.value(sessions)),
+        // Pinned, not ticking: see [testNow].
+        clockProvider.overrideWithValue(testNow),
       ],
       child: const TakeOffApp(),
     ),

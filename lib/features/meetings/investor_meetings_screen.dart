@@ -28,7 +28,7 @@ class InvestorMeetingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider);
-    final meetings = ref.watch(meetingsProvider);
+    final meetings = ref.watch(openMeetingsProvider);
 
     // Watched here so the picker and the watchlist have the exhibitor list
     // loaded before they are opened; nothing else on this tab reads it.
