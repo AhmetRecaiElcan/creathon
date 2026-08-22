@@ -251,8 +251,10 @@ final exhibitorsProvider = Provider<List<Organization>>(
 /// told apart here rather than in two collections that would double everything
 /// downstream.
 ///
-/// Only exhibitors keep meeting hours, so the request picker reads
-/// [exhibitorsProvider] instead: a venture in that list could never be booked.
+/// This split is for the places that are genuinely about one side or the other
+/// — the floor plan, the stage line-up. The meeting picker reads
+/// [organizationsProvider] and shows both: a venture can be booked too, on the
+/// day [Organization.bookableAvailability] opens for it.
 final startupsProvider = Provider<List<Organization>>(
   (ref) => ref
       .watch(organizationsProvider)

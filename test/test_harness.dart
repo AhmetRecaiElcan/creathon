@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:creathon/app.dart';
 import 'package:creathon/data/auth_repository.dart';
 import 'package:creathon/data/event_repository.dart';
+import 'package:creathon/data/meeting_link_repository.dart';
 import 'package:creathon/data/meeting_repository.dart';
 import 'package:creathon/data/organization_repository.dart';
 import 'package:creathon/data/profile_repository.dart';
@@ -230,6 +231,29 @@ class FakeOrganizationRepository implements OrganizationRepository {
   }
 }
 
+/// Stands in for the signing function.
+///
+/// The real link is signed with the video tenant's private key, which is
+/// exactly the thing that cannot live in the app — so a widget test can never
+/// produce a genuine one. What is testable, and what this records, is that the
+/// button asks for a link for the right meeting.
+class FakeMeetingLinkRepository implements MeetingLinkRepository {
+  FakeMeetingLinkRepository({this.failure});
+
+  /// When set, every request is refused with it — the offline and
+  /// not-your-meeting cases the button has to survive.
+  final JoinLinkFailure? failure;
+
+  final asked = <String>[];
+
+  @override
+  Future<Uri> linkFor(Meeting meeting) async {
+    asked.add(meeting.id);
+    if (failure != null) throw failure!;
+    return Uri.parse('https://8x8.vc/vpaas-test/${meeting.roomName}?jwt=test');
+  }
+}
+
 /// In-memory meeting store, including the one-request-per-slot rule.
 class FakeMeetingRepository implements MeetingRepository {
   FakeMeetingRepository([List<Meeting> seed = const []])
@@ -271,12 +295,16 @@ class FakeMeetingRepository implements MeetingRepository {
   }
 
   @override
-  Future<void> respond(Meeting meeting, MeetingStatus status) async {
+  Future<void> respond(
+    Meeting meeting,
+    MeetingStatus status, {
+    String? roomName,
+  }) async {
     _meetings.removeWhere((other) => other.id == meeting.id);
     // Declining removes the record so the slot opens back up, exactly as the
     // real repository does.
     if (status != MeetingStatus.declined) {
-      _meetings.add(meeting.copyWith(status: status));
+      _meetings.add(meeting.copyWith(status: status, roomName: roomName));
     }
     _changes.add(null);
   }
@@ -310,6 +338,7 @@ Future<void> pumpApp(
   FakeProfileStore? profiles,
   FakeOrganizationRepository? organizations,
   FakeMeetingRepository? meetings,
+  FakeMeetingLinkRepository? links,
   List<EventSession> sessions = const [],
 }) async {
   // A realistic phone viewport: on the default 800x600 test surface the lower
@@ -329,6 +358,8 @@ Future<void> pumpApp(
           organizationRepositoryProvider.overrideWithValue(organizations),
         if (meetings != null)
           meetingRepositoryProvider.overrideWithValue(meetings),
+        if (links != null)
+          meetingLinkRepositoryProvider.overrideWithValue(links),
         eventsStreamProvider.overrideWith((ref) => Stream.value(sessions)),
       ],
       child: const TakeOffApp(),

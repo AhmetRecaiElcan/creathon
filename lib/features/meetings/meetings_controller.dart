@@ -4,6 +4,7 @@ import '../../data/meeting_repository.dart';
 import '../../data/organization_repository.dart';
 import '../../domain/meeting.dart';
 import '../../domain/availability_slot.dart';
+import '../../domain/meeting_room.dart';
 import '../../domain/organization.dart';
 import '../profile/profile_controller.dart';
 
@@ -118,20 +119,40 @@ class MeetingsController {
     return meeting;
   }
 
-  Future<void> respond(Meeting meeting, MeetingStatus status) =>
-      _ref.read(meetingRepositoryProvider).respond(meeting, status);
+  /// Answers a request. Accepting an online one also mints the room it will be
+  /// held in — acceptance is the first moment there is a meeting to hold, and
+  /// the first moment a live link is not a link to something unagreed.
+  ///
+  /// A room already on the record is kept: re-confirming must not move the
+  /// meeting somewhere the other side is not looking.
+  Future<void> respond(Meeting meeting, MeetingStatus status) {
+    final needsRoom =
+        status == MeetingStatus.confirmed &&
+        meeting.mode == MeetingMode.online &&
+        meeting.roomName == null;
+
+    return _ref.read(meetingRepositoryProvider).respond(
+      meeting,
+      status,
+      roomName: needsRoom ? MeetingRoom.newName() : null,
+    );
+  }
 }
 
 final meetingsControllerProvider = Provider<MeetingsController>(
   MeetingsController.new,
 );
 
-/// Slots a visitor may actually ask this exhibitor for.
+/// Slots a visitor may actually ask this card for.
 ///
-/// Three things have to line up: the exhibitor declared the slot open, nobody
-/// else has taken it, and it does not collide with the visitor's own day. The
-/// blocked ones stay in the list so the reason is visible rather than the slot
-/// silently missing.
+/// Three things have to line up: the card is open at that hour, nobody else has
+/// taken it, and it does not collide with the visitor's own day. The blocked
+/// ones stay in the list so the reason is visible rather than the slot silently
+/// missing.
+///
+/// Reads [Organization.bookableAvailability] rather than the raw list, so a
+/// founder who was never offered an availability grid still shows a day that
+/// can be booked.
 final organizationSlotsProvider =
     Provider.family<List<OrganizationSlot>, String>((ref, orgId) {
       final organization = ref.watch(organizationByIdProvider(orgId));
@@ -142,7 +163,7 @@ final organizationSlotsProvider =
       final now = DateTime.now();
 
       final slots = <OrganizationSlot>[];
-      for (final offer in organization.availability) {
+      for (final offer in organization.bookableAvailability) {
         final start = offer.parseOn(now);
         if (start == null) continue;
         final end = start.add(const Duration(minutes: 30));
@@ -215,16 +236,4 @@ class OrganizationSlot {
         ? '${clash.requesterName} ile görüşmen var'
         : '${clash.organizationName} ile toplantın var';
   }
-}
-
-/// Whole-day grid an exhibitor picks its availability from.
-abstract final class SlotGrid {
-  static const startHour = 9;
-  static const endHour = 18;
-
-  static List<String> get labels => [
-    for (var hour = startHour; hour < endHour; hour++)
-      for (final minute in ['00', '30'])
-        '${hour.toString().padLeft(2, '0')}:$minute',
-  ];
 }

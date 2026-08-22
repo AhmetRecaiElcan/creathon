@@ -45,7 +45,16 @@ abstract interface class MeetingRepository {
   /// The exhibitor's answer. Declining removes the record so the slot opens
   /// back up — a refused request that blocked the time forever would make the
   /// availability grid lie.
-  Future<void> respond(Meeting meeting, MeetingStatus status);
+  ///
+  /// [roomName] is the video room an accepted online meeting will be held in.
+  /// It travels with the acceptance rather than in a write of its own so the
+  /// meeting can never be confirmed-but-unjoinable, not even for the instant
+  /// between two updates.
+  Future<void> respond(
+    Meeting meeting,
+    MeetingStatus status, {
+    String? roomName,
+  });
 }
 
 class FirestoreMeetingRepository implements MeetingRepository {
@@ -127,14 +136,21 @@ class FirestoreMeetingRepository implements MeetingRepository {
   }
 
   @override
-  Future<void> respond(Meeting meeting, MeetingStatus status) async {
+  Future<void> respond(
+    Meeting meeting,
+    MeetingStatus status, {
+    String? roomName,
+  }) async {
     if (!firebaseReady) return;
     try {
       if (status == MeetingStatus.declined) {
         await _meetings.doc(meeting.id).delete();
         return;
       }
-      await _meetings.doc(meeting.id).update({'status': status.name});
+      await _meetings.doc(meeting.id).update({
+        'status': status.name,
+        'roomName': ?roomName,
+      });
     } catch (error) {
       debugPrint('Toplantı güncellenemedi: $error');
     }

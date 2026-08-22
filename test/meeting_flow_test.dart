@@ -5,6 +5,7 @@ import 'package:creathon/domain/meeting.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
 import 'package:creathon/domain/user_role.dart';
+import 'package:creathon/data/meeting_link_repository.dart';
 import 'package:creathon/data/organization_repository.dart';
 import 'package:creathon/features/meetings/meetings_controller.dart';
 import 'package:creathon/features/meetings/meeting_request_sheet.dart';
@@ -45,6 +46,7 @@ void main() {
     DateTime start, {
     String organizationId = 'org-1',
     String requesterId = 'uid-1',
+    MeetingMode mode = MeetingMode.inPerson,
   }) => Meeting(
     id: Meeting.idFor(organizationId: organizationId, start: start),
     organizationId: organizationId,
@@ -54,8 +56,9 @@ void main() {
     requesterEmail: 'elif@example.com',
     start: start,
     end: start.add(const Duration(minutes: 30)),
-    location: 'Stand A1',
+    location: mode == MeetingMode.online ? 'Online görüşme' : 'Stand A1',
     status: MeetingStatus.requested,
+    mode: mode,
   );
 
   testWidgets('the request sheet offers only the hours the exhibitor opened', (
@@ -200,5 +203,130 @@ void main() {
     await advance(tester, frames: 10);
 
     expect(meetings.meetings.single.status, MeetingStatus.confirmed);
+    expect(
+      meetings.meetings.single.roomName,
+      isNull,
+      reason: 'nobody dials into a booth visit',
+    );
+  });
+
+  testWidgets('accepting an online request is what creates the room', (
+    tester,
+  ) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+
+    final auth = FakeAuthRepository()..verified = true;
+    final meetings = FakeMeetingRepository([
+      requestFor(
+        todayAt(10, 0),
+        organizationId: orgId,
+        mode: MeetingMode.online,
+      ),
+    ]);
+    final links = FakeMeetingLinkRepository();
+
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([exhibitor(id: orgId)]),
+      profiles: FakeProfileStore(
+        const UserProfile(
+          role: UserRole.corporate,
+          firstName: 'Nexora Robotik',
+          email: email,
+          emailVerified: true,
+        ),
+      ),
+      meetings: meetings,
+      links: links,
+    );
+
+    await chooseRole(tester, UserRole.corporate);
+    await tester.tap(find.text('Giriş yap'));
+    await advance(tester, frames: 8);
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), email);
+    await tester.enterText(fields.at(1), 'takeoff2026');
+    await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
+    await advance(tester, frames: 16);
+
+    // Nothing to dial into before the host has agreed to the call, and nothing
+    // to ask the signing function for either.
+    expect(find.text('Online'), findsOneWidget);
+    expect(find.text('Görüşmeye katıl'), findsNothing);
+    expect(links.asked, isEmpty);
+
+    await tester.tap(find.text('Onayla'));
+    await advance(tester, frames: 16);
+
+    final confirmed = meetings.meetings.single;
+    expect(confirmed.status, MeetingStatus.confirmed);
+    expect(confirmed.roomName, startsWith('takeoff-'));
+    expect(confirmed.isJoinable, isTrue);
+
+    // Only now is there a door, and tapping it asks the server to sign one for
+    // this meeting. The app never builds the link itself: the private key that
+    // would let it is the one thing that must not ship.
+    expect(find.text('Görüşmeye katıl'), findsOneWidget);
+    await tester.tap(find.text('Görüşmeye katıl'));
+    await advance(tester, frames: 12);
+    expect(links.asked, [confirmed.id]);
+  });
+
+  testWidgets('a refused link says why instead of failing silently', (
+    tester,
+  ) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+
+    final auth = FakeAuthRepository()..verified = true;
+    final start = todayAt(10, 0);
+    final meetings = FakeMeetingRepository([
+      requestFor(
+        start,
+        organizationId: orgId,
+        mode: MeetingMode.online,
+      ).copyWith(status: MeetingStatus.confirmed, roomName: 'takeoff-abcdefgh'),
+    ]);
+    final links = FakeMeetingLinkRepository(
+      failure: const JoinLinkFailure('Toplantı henüz onaylanmadı.'),
+    );
+
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([exhibitor(id: orgId)]),
+      profiles: FakeProfileStore(
+        const UserProfile(
+          role: UserRole.corporate,
+          firstName: 'Nexora Robotik',
+          email: email,
+          emailVerified: true,
+        ),
+      ),
+      meetings: meetings,
+      links: links,
+    );
+
+    await chooseRole(tester, UserRole.corporate);
+    await tester.tap(find.text('Giriş yap'));
+    await advance(tester, frames: 8);
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), email);
+    await tester.enterText(fields.at(1), 'takeoff2026');
+    await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
+    await advance(tester, frames: 16);
+
+    await tester.tap(find.text('Görüşmeye katıl'));
+    await advance(tester, frames: 16);
+
+    // The function's own words, not a generic apology: it is the only thing
+    // that knows which of half a dozen reasons applied.
+    expect(find.text('Toplantı henüz onaylanmadı.'), findsOneWidget);
+    // And the button is usable again rather than stuck mid-spinner.
+    expect(find.text('Görüşmeye katıl'), findsOneWidget);
   });
 }

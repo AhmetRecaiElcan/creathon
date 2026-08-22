@@ -69,11 +69,16 @@ service cloud.firestore {
       allow create: if verified()
                     && request.resource.data.requesterId == request.auth.uid
                     && request.resource.data.status == 'requested';
-      // Answering is the exhibitor's alone, and only the status may move.
+      // Answering is the host's alone, and only the status and the room it
+      // will be held in may move. The room is the host's to name because
+      // accepting is what creates it: an online meeting is confirmed and given
+      // somewhere to happen in the same write, so it can never be agreed and
+      // unjoinable. The requester cannot set it, which stops a link being
+      // slipped into a meeting the host thinks is a booth visit.
       allow update: if verified()
                     && resource.data.organizationId == request.auth.uid
                     && request.resource.data.diff(resource.data)
-                         .affectedKeys().hasOnly(['status']);
+                         .affectedKeys().hasOnly(['status', 'roomName']);
       // Declining deletes the record, which frees the slot again. Either side
       // may withdraw: the visitor cancels, the exhibitor declines.
       allow delete: if verified()

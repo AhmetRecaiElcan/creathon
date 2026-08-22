@@ -15,8 +15,8 @@ import 'meetings_controller.dart';
 ///
 /// An investor standing in the hall reaches a company by scanning its stand or
 /// tapping its booth, but the work also happens on the train home, and there a
-/// list is the only way in. Companies whose hours are open come first: the list
-/// is sorted by what can actually be booked, not alphabetically.
+/// list is the only way in. Cards whose hours are open come first: the list is
+/// sorted by what can actually be booked, not alphabetically.
 Future<void> showOrgPickerSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
@@ -31,11 +31,18 @@ class _OrgPickerSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Exhibitors only: they are the side that keeps hours, so a startup card
-    // in this list could never be booked and would only be noise.
-    final exhibitors = _ordered(
-      ref.watch(exhibitorsProvider),
-      ref.watch(profileProvider).sectors,
+    final profile = ref.watch(profileProvider);
+
+    // Every published card, company and venture alike: a fund comes to the
+    // fair for the ventures at least as much as for the corporates, so a list
+    // that showed only exhibitors would hide the half it came for. Own card
+    // dropped — asking yourself for a meeting is not a state worth having.
+    final cards = _ordered(
+      ref
+          .watch(organizationsProvider)
+          .where((organization) => organization.id != profile.uid)
+          .toList(growable: false),
+      profile.sectors,
     );
 
     return SafeArea(
@@ -53,29 +60,29 @@ class _OrgPickerSheet extends ConsumerWidget {
               children: [
                 Text('GÖRÜŞME TALEBİ', style: AppTypography.eyebrow),
                 const SizedBox(height: 4),
-                Text('Hangi kurumla?', style: AppTypography.titleMedium),
+                Text('Kiminle görüşeceksin?', style: AppTypography.titleMedium),
                 const SizedBox(height: AppSpace.xs),
                 Text(
-                  exhibitors.isEmpty
-                      ? 'Kurumlar kartlarını yayına aldığında burada listelenir.'
-                      : 'Saatlerini açan kurumlar üstte. Bir kuruma '
-                            'dokunduğunda açtığı saatler ve görüşme türü '
-                            'listelenir.',
+                  cards.isEmpty
+                      ? 'Kurumlar ve girişimler kartlarını yayına aldığında '
+                            'burada listelenir.'
+                      : 'Saatleri açık olanlar üstte. Bir karta dokunduğunda '
+                            'açık saatler ve görüşme türü listelenir.',
                   style: AppTypography.bodySmall,
                 ),
                 const SizedBox(height: AppSpace.lg),
-                if (exhibitors.isEmpty)
+                if (cards.isEmpty)
                   const _NoOrganizations()
                 else
                   Flexible(
                     child: ListView.separated(
                       shrinkWrap: true,
                       padding: EdgeInsets.zero,
-                      itemCount: exhibitors.length,
+                      itemCount: cards.length,
                       separatorBuilder: (_, _) =>
                           const SizedBox(height: AppSpace.md),
                       itemBuilder: (_, index) =>
-                          _PickerRow(organization: exhibitors[index]),
+                          _PickerRow(organization: cards[index]),
                     ),
                   ),
               ],
@@ -95,8 +102,8 @@ class _OrgPickerSheet extends ConsumerWidget {
   ) {
     final ordered = [...all];
     ordered.sort((a, b) {
-      final open = (b.availability.isNotEmpty ? 1 : 0).compareTo(
-        a.availability.isNotEmpty ? 1 : 0,
+      final open = (b.bookableAvailability.isNotEmpty ? 1 : 0).compareTo(
+        a.bookableAvailability.isNotEmpty ? 1 : 0,
       );
       if (open != 0) return open;
 
@@ -120,7 +127,7 @@ class _PickerRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = Theme.of(context).colorScheme.primary;
     final booked = ref.watch(meetingWithProvider(organization.id));
-    final open = organization.availability.length;
+    final open = organization.bookableAvailability.length;
 
     // Three states, and each one has to say what it is: already asked, open for
     // a request, or closed. Only the middle one is tappable.
@@ -143,7 +150,9 @@ class _PickerRow extends ConsumerWidget {
     } else {
       // What the row has to answer before a tap: how many hours, and of what
       // kind — walking to a booth and joining a call are different plans.
-      final modes = {for (final slot in organization.availability) slot.mode};
+      final modes = {
+        for (final slot in organization.bookableAvailability) slot.mode,
+      };
       final kinds = modes.map((mode) => mode.label).join(' / ');
       caption = '$open saat açık  ·  $kinds';
       trailing = const Icon(
@@ -192,7 +201,7 @@ class _NoOrganizations extends StatelessWidget {
         const SizedBox(width: AppSpace.md),
         Expanded(
           child: Text(
-            'Yayında kurum yok. Fuar alanındaki standlardan ya da karekod '
+            'Yayında kart yok. Fuar alanındaki standlardan ya da karekod '
             'okutarak da ulaşabilirsin.',
             style: AppTypography.bodySmall,
           ),

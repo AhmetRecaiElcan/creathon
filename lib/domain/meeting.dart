@@ -46,6 +46,7 @@ class Meeting {
     this.requesterCompany,
     this.requesterKind,
     this.note,
+    this.roomName,
   });
 
   final String id;
@@ -83,6 +84,29 @@ class Meeting {
   /// Optional message sent with the request.
   final String? note;
 
+  /// The video room this meeting happens in, for an online one that has been
+  /// confirmed.
+  ///
+  /// Written by the host at the moment they accept, and never before: a room
+  /// minted when the request was *sent* would be a live, joinable link to a
+  /// meeting the other side had not yet agreed to. Null on an in-person
+  /// meeting, and on an online one still waiting for an answer.
+  final String? roomName;
+
+  /// Whether there is a call to walk into right now.
+  ///
+  /// All three conditions matter: in person there is nothing to click, before
+  /// the host accepts there is no agreement, and without a room there is no
+  /// link — a button that appeared in any of those cases would lie.
+  ///
+  /// The link itself is not here: it has to be signed with the video tenant's
+  /// private key, which is why a function issues it. This only says whether
+  /// there is any point in asking for one.
+  bool get isJoinable =>
+      mode == MeetingMode.online &&
+      status == MeetingStatus.confirmed &&
+      roomName != null;
+
   /// How the requester is introduced to the host: the fund and the kind when
   /// there are any, and the address when there are not — an exhibitor should
   /// never be shown a nameless row.
@@ -116,7 +140,11 @@ class Meeting {
     required DateTime start,
   }) => '${organizationId}__${start.toIso8601String()}';
 
-  Meeting copyWith({MeetingStatus? status, String? note}) => Meeting(
+  Meeting copyWith({
+    MeetingStatus? status,
+    String? note,
+    String? roomName,
+  }) => Meeting(
     id: id,
     organizationId: organizationId,
     organizationName: organizationName,
@@ -131,6 +159,7 @@ class Meeting {
     status: status ?? this.status,
     mode: mode,
     note: note ?? this.note,
+    roomName: roomName ?? this.roomName,
   );
 
   Map<String, Object?> toMap() => {
@@ -147,6 +176,7 @@ class Meeting {
     'status': status.name,
     'mode': mode.id,
     'note': note,
+    'roomName': roomName,
   };
 
   /// Returns null when the row cannot be read as a meeting, so one bad
@@ -178,6 +208,7 @@ class Meeting {
       status: MeetingStatus.fromId(map['status'] as String?),
       mode: MeetingMode.fromId(map['mode'] as String?),
       note: map['note'] as String?,
+      roomName: map['roomName'] as String?,
     );
   }
 }

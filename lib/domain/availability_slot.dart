@@ -93,3 +93,30 @@ class AvailabilitySlot {
     );
   }
 }
+
+/// The event day, cut into the half-hours a meeting can start on.
+///
+/// One definition for both sides of the same grid: the exhibitor ticks slots
+/// out of it, and a card with no ticks at all is read as the whole of it.
+abstract final class SlotGrid {
+  static const startHour = 9;
+  static const endHour = 18;
+
+  static List<String> get labels => [
+    for (var hour = startHour; hour < endHour; hour++)
+      for (final minute in ['00', '30'])
+        '${hour.toString().padLeft(2, '0')}:$minute',
+  ];
+
+  /// The whole day as open online slots.
+  ///
+  /// What a founder's card offers when they never declared hours. They are
+  /// given no availability grid — they spend the fair walking the hall, not
+  /// sitting at a counter — so an empty list from a venture means "reach me
+  /// whenever", not "never". Online, because that is the one way to meet
+  /// someone who has no booth to be found at.
+  static List<AvailabilitySlot> get openAllDay => [
+    for (final label in labels)
+      AvailabilitySlot(time: label, mode: MeetingMode.online),
+  ];
+}

@@ -46,7 +46,7 @@ class _OrgCardSheet extends ConsumerWidget {
     // fund (see [UserRole.canRequestMeetings]).
     final isOwnCard = profile.uid == organizationId;
     final mayRequest = profile.role?.canRequestMeetings ?? false;
-    final offersSlots = organization?.availability.isNotEmpty ?? false;
+    final offersSlots = organization?.bookableAvailability.isNotEmpty ?? false;
 
     return SafeArea(
       child: Padding(

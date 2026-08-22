@@ -142,6 +142,23 @@ class Organization {
   /// Just the times, for the checks that only care whether a slot exists.
   Set<String> get openTimes => {for (final slot in availability) slot.time};
 
+  /// The hours this card can actually be asked for.
+  ///
+  /// Normally [availability] itself — an exhibitor was handed the grid and what
+  /// it ticked is the offer, so a company that ticked nothing is closed and has
+  /// to read as closed.
+  ///
+  /// A venture is the exception: it is never shown that grid at all, so an
+  /// empty list is the absence of a question rather than a "no". It falls back
+  /// to the whole day, online — a founder crossing the hall can take a call
+  /// from anywhere, which is exactly what a booth-less card cannot promise in
+  /// person. Everything that asks "can I book this card" reads this rather
+  /// than [availability], or a founder would be permanently unreachable.
+  List<AvailabilitySlot> get bookableAvailability {
+    if (availability.isNotEmpty) return availability;
+    return kind.isStartup ? SlotGrid.openAllDay : const [];
+  }
+
   /// Reads the slot list, tolerating the flat `["10:00"]` shape an earlier
   /// build wrote. Those become in-person slots with no note, which is what
   /// they meant when there was nothing else to say.

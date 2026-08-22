@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_palette.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/glass_surface.dart';
+import '../../../data/meeting_link_repository.dart';
 import '../../../domain/meeting.dart';
 
 /// A meeting on the agenda. Shares the time-column layout with [SessionCard] so
@@ -197,6 +200,17 @@ class MeetingCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
+                // The whole point of an online meeting, and it outranks the
+                // answer buttons below: by the time a room exists the request
+                // has already been accepted, so the only thing left to do with
+                // this card is walk into the call.
+                if (meeting.isJoinable) ...[
+                  const SizedBox(height: AppSpace.md),
+                  // The name the other side will see is not passed in: the
+                  // function picks it from the meeting record by which party is
+                  // calling, so the app cannot claim to be someone else.
+                  _JoinAction(meeting: meeting, color: accent),
+                ],
                 if (onAccept != null || onDecline != null) ...[
                   const SizedBox(height: AppSpace.md),
                   Row(
@@ -228,6 +242,126 @@ class MeetingCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Opens the video room for a confirmed online meeting.
+///
+/// Filled and full width, unlike the outlined answer buttons: there is exactly
+/// one thing to do with a call that is already agreed, and a card that made the
+/// user hunt for it would be the worst moment in the app to be subtle.
+///
+/// The tap is a round trip, not a link: the room admits whoever holds a signed
+/// token, and only the server can sign one. So the button has a waiting state,
+/// short as it is — a filled button that appeared to do nothing for a second
+/// would be tapped again, and again.
+class _JoinAction extends ConsumerStatefulWidget {
+  const _JoinAction({required this.meeting, required this.color});
+
+  final Meeting meeting;
+  final Color color;
+
+  @override
+  ConsumerState<_JoinAction> createState() => _JoinActionState();
+}
+
+class _JoinActionState extends ConsumerState<_JoinAction> {
+  bool _busy = false;
+
+  Future<void> _open() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    String? failure;
+
+    try {
+      final url = await ref
+          .read(meetingLinkRepositoryProvider)
+          .linkFor(widget.meeting);
+
+      // Externally rather than in a web view: the call needs the camera and
+      // the microphone, and an in-app view is where those permissions go to
+      // die. The browser — or the Jitsi app, if it is installed and claims the
+      // link — already knows how to ask for them.
+      final opened = await launchUrl(
+        url,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) {
+        failure = 'Görüşme açılamadı. Tarayıcın engelliyor olabilir.';
+      }
+    } on JoinLinkFailure catch (error) {
+      // The function says why in words the user can act on, so its own message
+      // is shown rather than a generic one.
+      failure = error.message;
+    } catch (_) {
+      failure = 'Görüşme açılamadı. Bağlantını kontrol edip tekrar dene.';
+    }
+
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (failure == null) return;
+
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppPalette.inkOverlay,
+          content: Text(
+            failure,
+            style: AppTypography.bodySmall.copyWith(
+              color: AppPalette.textPrimary,
+            ),
+          ),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Görüşmeye katıl',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _busy ? null : _open,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: AppSpace.md),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            color: widget.color.withValues(alpha: _busy ? 0.5 : 0.9),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_busy)
+                const SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppPalette.ink,
+                  ),
+                )
+              else
+                const Icon(
+                  Icons.videocam_rounded,
+                  size: 17,
+                  color: AppPalette.ink,
+                ),
+              const SizedBox(width: 7),
+              Text(
+                _busy ? 'Bağlanıyor…' : 'Görüşmeye katıl',
+                style: AppTypography.label.copyWith(
+                  fontSize: 13.5,
+                  color: AppPalette.ink,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

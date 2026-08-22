@@ -133,7 +133,7 @@ void main() {
     await tester.tap(find.text('Görüşme talebi oluştur'));
     await advance(tester, frames: 10);
 
-    expect(find.text('Hangi kurumla?'), findsOneWidget);
+    expect(find.text('Kiminle görüşeceksin?'), findsOneWidget);
     expect(
       find.text('1 saat açık  ·  Yüz yüze'),
       findsOneWidget,

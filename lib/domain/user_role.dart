@@ -84,13 +84,18 @@ enum UserRole {
   bool get canRequestMeetings =>
       this == UserRole.entrepreneur || this == UserRole.investor;
 
-  /// Who keeps meeting hours and therefore can be asked for one.
+  /// Who can be asked for a meeting, and therefore has requests to answer.
   ///
-  /// Only the exhibitor: it is the side standing still, at a booth, with a
-  /// counter and a diary. A founder publishes a card to be found and spends the
-  /// fair walking up to companies — so they send requests and never answer
-  /// them, which is why they are offered no availability grid at all.
-  bool get receivesMeetings => this == UserRole.corporate;
+  /// Both sides that publish a card. The exhibitor is the obvious one: it
+  /// stands still, at a booth, with a counter and a diary. The founder is the
+  /// one that is easy to get wrong — they are shown no availability grid,
+  /// because they spend the fair walking the hall rather than sitting at a
+  /// counter, and it would be tempting to read that as "cannot be booked". But
+  /// a fund that wants half an hour with a venture has to be able to ask for
+  /// it, and the venture has to see the ask. So a card with no declared hours
+  /// is treated as open all day online — see
+  /// [Organization.bookableAvailability] — and the requests land here.
+  bool get receivesMeetings => publishesCard;
 
   /// Who publishes an info card at `organizations/{uid}`.
   ///

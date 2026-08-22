@@ -8,7 +8,6 @@ import '../../core/widgets/glass_field.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/section_header.dart';
 import '../../domain/availability_slot.dart';
-import '../meetings/meetings_controller.dart';
 import 'organization_controller.dart';
 
 /// Opens a half-hour for meeting requests.

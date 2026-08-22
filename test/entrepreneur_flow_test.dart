@@ -179,7 +179,7 @@ void main() {
     await advance(tester, frames: 10);
 
     // The company's own hours, with what kind of meeting each one is.
-    expect(find.text('Hangi kurumla?'), findsOneWidget);
+    expect(find.text('Kiminle görüşeceksin?'), findsOneWidget);
     expect(find.text('1 saat açık  ·  Yüz yüze'), findsOneWidget);
 
     await tester.tap(find.text('Baykar'));
@@ -232,11 +232,14 @@ void main() {
     );
   });
 
-  testWidgets('the request picker offers companies, not ventures', (
+  testWidgets('the request picker offers ventures alongside companies', (
     tester,
   ) async {
-    // Only the exhibitor keeps hours, so a venture in that list could never be
-    // booked — it belongs on the floor plan and behind a QR, not here.
+    // A fund comes to the fair for the ventures at least as much as for the
+    // corporates. A venture is never shown an availability grid, so it declares
+    // no hours — and that has to read as "reach me whenever" rather than as a
+    // closed row, or a founder would be unreachable by the one audience they
+    // came to meet.
     final auth = FakeAuthRepository();
 
     await pumpApp(
@@ -265,7 +268,12 @@ void main() {
     await advance(tester, frames: 10);
 
     expect(find.text('Baykar'), findsOneWidget);
-    expect(find.text('Nexora Robotik'), findsNothing);
+    expect(find.text('Nexora Robotik'), findsOneWidget);
+
+    // The company ticked one in-person hour; the venture ticked nothing and so
+    // stands open for the whole 09:00–18:00 day, online.
+    expect(find.text('1 saat açık  ·  Yüz yüze'), findsOneWidget);
+    expect(find.text('18 saat açık  ·  Online'), findsOneWidget);
   });
 
   testWidgets('a returning founder is restored with their card', (

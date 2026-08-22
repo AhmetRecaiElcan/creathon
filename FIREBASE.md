@@ -15,6 +15,9 @@ Proje: **creathon-9488f** · Android paketi: **com.company.creathon**
 | Etkinlik programı | `lib/data/event_repository.dart` |
 | Fuar standları | `lib/data/expo_repository.dart` |
 | Güvenlik kuralları | `firebase/firestore.rules` |
+| Görüşme bağlantısı imzalama | `functions/index.js` |
+| İmzalı bağlantı istemcisi | `lib/data/meeting_link_repository.dart` |
+| CLI hedefi | `firebase.json`, `.firebaserc` |
 
 Firebase ayağa kalkmazsa uygulama çökmez: repository'ler boş veriye düşer,
 yalnızca hesap gerektiren adımlar "bağlantı kurulamadı" der.
@@ -24,9 +27,48 @@ yalnızca hesap gerektiren adımlar "bağlantı kurulamadı" der.
 1. **Authentication → Sign-in method → Email/Password**'ü aç.
    (Kapalıyken kayıt `operation-not-allowed` döner.)
 2. **Firestore Database**'i oluştur (production mode).
-3. `firebase/firestore.rules` içeriğini **Rules** sekmesine yapıştır ve yayınla.
-4. Authentication → Templates → **Email address verification** şablonundaki
+3. Authentication → Templates → **Email address verification** şablonundaki
    gönderen adını ve metni Türkçeleştir.
+4. Faturalandırmayı **Blaze**'e geçir — Cloud Functions'ın şartı.
+
+Kurallar artık konsola elle yapıştırılmıyor; `firebase.json` CLI'a nereye
+bakacağını söylüyor:
+
+```
+firebase deploy --only firestore:rules
+```
+
+## Online görüşmeler
+
+Görüşme odası **JaaS** (8x8'in barındırdığı Jitsi) üzerinde. Odaya girmek, kiracının
+RSA özel anahtarıyla imzalanmış bir JWT sunmayı gerektiriyor — yani anahtar kapının
+kendisi. Uygulamanın içine konulan bir anahtar, APK'yı açan herkesin kendine sınırsız
+geçiş üretebileceği bir anahtardır; bu yüzden imzalama `functions/index.js` içindeki
+`meetingJoinLink` fonksiyonunda.
+
+Fonksiyonun asıl kazancı imzalama değil, **kimin girebileceği kararının uygulamanın
+düzenleyemediği bir yerde alınması**: toplantı dokümanını okuyup çağıranın gerçekten
+o toplantının iki tarafından biri olduğunu ve toplantının onaylandığını doğruladıktan
+sonra imzalıyor. Token tek bir odaya kısıtlanıyor — `room: "*"` taşıyan bir token
+kiracıdaki *her* toplantıyı elinde tutana açardı.
+
+Her iki taraf da `moderator: "true"` alıyor. İki kişilik bir görüşmede yalnızca bir
+tarafın moderatör olması, diğerinin lobide bekleyerek karşı tarafın önce girmesini
+beklemesi demektir — halka açık `meet.jit.si` örneğini terk etme sebebimiz de tam
+olarak buydu.
+
+İlk kurulum (özel anahtar depoya **girmez**, Secret Manager'a girer):
+
+```
+firebase functions:secrets:set JAAS_KEY_ID
+firebase functions:secrets:set JAAS_PRIVATE_KEY < jaas-anahtar.pk
+firebase deploy --only functions
+```
+
+`JAAS_APP_ID` gizli değil — her katılım bağlantısının ilk yol parçası, dolayısıyla
+`functions/index.js` içinde varsayılan olarak duruyor. Bölge `europe-west1`;
+`FunctionsMeetingLinkRepository.region` ile aynı kalmalı, yoksa çağrı hiçbir şeyin
+dinlemediği bir adrese gider ve `not-found` döner.
 
 ## Koleksiyon şemaları
 
@@ -247,6 +289,31 @@ kullanıcıyı doğrudan ana sayfaya alır — karşılama ekranı görünmez.
 Uygulama bu iki durumu artık "stant kapıldı" ile karıştırmıyor: reddedilen bir
 yazmada önce `stands/{kod}` kilidinin gerçekten var olup olmadığına bakıp
 `StandTakenFailure` ile `PublishFailure` arasında karar veriyor.
+
+**`PERMISSION_DENIED` — `Write failed at meetings/...`, sadece online talepleri
+onaylarken**
+
+Yayındaki kural seti `roomName`'i tanımıyor. Online bir talep onaylanırken
+`status` ile `roomName` **aynı** yazmada gidiyor — onaylanmış ama girilecek yeri
+olmayan bir toplantı bir an için bile oluşmasın diye. `hasOnly(['status'])`
+diyen eski kural ikinci alanı görünce yazmanın tamamını reddediyor. Ayırt etme
+yolu: yüz yüze bir talebin onayı geçiyorsa sebep budur, çünkü orada `roomName`
+null olduğundan haritaya hiç girmiyor.
+
+Çözüm: `firebase deploy --only firestore:rules`.
+
+**Görüşmeye katıl → "Görüşme bağlantısı alınamadı"**
+
+Sırayla bak:
+
+1. `firebase functions:log --only meetingJoinLink` — fonksiyon `secretOrPrivateKey`
+   diye şikâyet ediyorsa özel anahtar Secret Manager'a satır sonları bozulmuş
+   girmiş. Dosyadan yönlendirerek tekrar yaz: `... < jaas-anahtar.pk`.
+2. `not-found` dönüyorsa bölge uyuşmuyor. Fonksiyon `europe-west1`'de,
+   istemci de orayı aramalı.
+3. 8x8 tarafında `invalid token` görünüyorsa `JAAS_KEY_ID`, JaaS konsolundaki
+   anahtarın kimliği değil de başka bir şey olabilir; JWT başlığındaki `kid` bu
+   değerden geliyor.
 
 ## Hesap silme
 
