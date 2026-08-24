@@ -135,7 +135,7 @@ void main() {
 
     expect(find.text('Kiminle görüşeceksin?'), findsOneWidget);
     expect(
-      find.text('1 saat açık  ·  Yüz yüze'),
+      find.text('1 görüşme açık  ·  Yüz yüze'),
       findsOneWidget,
     );
 
@@ -410,5 +410,102 @@ void main() {
     await tester.tap(find.text('Toplantı talep et'));
     await advance(tester, frames: 10);
     expect(find.text('SAAT SEÇ'), findsOneWidget);
+  });
+
+  testWidgets('a half-hour already under way can still be asked for', (
+    tester,
+  ) async {
+    final meetings = FakeMeetingRepository();
+
+    // Ten past eight, with the company open at eight. The half-hour is running
+    // but not spent, and at a fair that is exactly when a meeting gets made —
+    // the grid used to close a slot the instant it started, throwing away
+    // twenty usable minutes of every one.
+    final midSlot = testNow.add(const Duration(minutes: 10));
+
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([
+        exhibitor(slots: const {'08:00'}),
+      ]),
+      meetings: meetings,
+      clock: midSlot,
+    );
+    await completeInvestorOnboarding(tester, auth: auth);
+
+    showOrgCardSheet(
+      tester.element(find.byType(Scaffold).first),
+      organizationId: 'org-1',
+    );
+    await advance(tester, frames: 10);
+    await tester.tap(find.text('Toplantı talep et'));
+    await advance(tester, frames: 10);
+
+    await tester.tap(find.text('08:00 – 08:30'));
+    await advance(tester, frames: 8);
+    await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
+    await advance(tester, frames: 40);
+
+    // The controller re-checks the clock independently of the grid, so this
+    // also proves the two agree — a screen that offers an hour the controller
+    // then refuses is the worst of both rules.
+    expect(meetings.meetings, hasLength(1));
+    expect(
+      meetings.meetings.single.start,
+      DateTime(testNow.year, testNow.month, testNow.day, 8),
+    );
+  });
+
+  testWidgets('a card whose every hour has passed says so instead of asking', (
+    tester,
+  ) async {
+    final meetings = FakeMeetingRepository();
+
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      // testNow is 08:00, so a company that only opened the small hours has
+      // nothing left today. This is the case that was reported as "the clock is
+      // fine but I cannot send a request": since the grid was opened to the
+      // whole day, its first chips are the middle of the night, and a company
+      // ticking the first ones it saw published hours that were already gone.
+      organizations: FakeOrganizationRepository([
+        exhibitor(slots: const {'00:00', '00:30', '01:00'}),
+      ]),
+      meetings: meetings,
+    );
+    await completeInvestorOnboarding(tester, auth: auth);
+
+    // Reached from the card, deliberately: the picker list refuses the tap on a
+    // company with no open hour, but a card has no such guard — which is how
+    // this sheet gets opened with nothing to choose.
+    showOrgCardSheet(
+      tester.element(find.byType(Scaffold).first),
+      organizationId: 'org-1',
+    );
+    await advance(tester, frames: 10);
+    await tester.tap(find.text('Toplantı talep et'));
+    await advance(tester, frames: 10);
+
+    // Says it on arrival rather than after a failed tap.
+    expect(
+      find.text('Bu saatlerin hepsi geçti veya doldu — bugün talep gönderilemez.'),
+      findsOneWidget,
+    );
+
+    // And if the button is pressed anyway, it does not send the visitor hunting
+    // for an hour that is not on the screen.
+    await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
+    await advance(tester, frames: 10);
+
+    expect(find.text('Bir saat seç.'), findsNothing);
+    expect(
+      find.text('Kurumun açtığı saatlerin hepsi geçti veya doldu.'),
+      findsOneWidget,
+    );
+    expect(meetings.meetings, isEmpty);
   });
 }

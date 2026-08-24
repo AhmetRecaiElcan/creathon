@@ -15,11 +15,67 @@ service cloud.firestore {
              && request.auth.token.email_verified == true;
     }
 
-    // Event programme, rendered by the home feed. Written by the organiser
-    // through the console, never from the app.
+    // Whether the caller runs the admin panel. Membership is a document rather
+    // than a custom claim on purpose: a claim needs a service-account script to
+    // grant, while a document is one row the organiser creates in the console
+    // once. Nobody can write the collection, so the only way in is that console.
+    function isAdmin() {
+      return request.auth != null
+             && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // The caller's own row on the guest list, keyed by their verified address.
+    // `Invite.idFor` in Dart lower-cases the same way; the two must agree or an
+    // invited guest is refused at the door.
+    function inviteId() {
+      return request.auth != null && request.auth.token.email != null
+             ? request.auth.token.email.lower()
+             : '';
+    }
+
+    // The audience the organiser admitted this address as, or null when the
+    // address is absent — checked with exists() first because get() on a
+    // missing document has no data to read.
+    function invitedRole() {
+      let path = /databases/$(database)/documents/invites/$(inviteId());
+      return exists(path) ? get(path).data.get('role', null) : null;
+    }
+
+    // The guest list, written by the admin panel and read by nobody else.
+    //
+    // A guest may read exactly their own row, which is what lets the signup
+    // screen say "you were admitted as a visitor, use that door" instead of
+    // failing a write with no explanation. `list` stays admin-only, so the
+    // collection cannot be walked from a phone to find out who is coming.
+    // The wildcard is not called `inviteId` on purpose: that is the name of the
+    // helper above, and a wildcard shadowing a function is a compile error.
+    match /invites/{inviteEmail} {
+      allow get: if isAdmin()
+                 || (request.auth != null
+                     && request.auth.token.email != null
+                     && request.auth.token.email.lower() == inviteEmail);
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Panel operators. Console-only: a collection that could grant its own
+    // membership would make the guest list decorative, since an admin writes it.
+    match /admins/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Event programme, rendered by every portfolio's home feed.
+    //
+    // Public reads, because a visitor has to be able to see the programme
+    // before they have an account. Writes belong to the admin panel alone: this
+    // is the one collection whose contents reach all four audiences at once, so
+    // an account that could post to it could put a message on every phone at
+    // the event.
     match /events/{eventId} {
       allow read: if true;
-      allow write: if false;
+      allow create, update, delete: if isAdmin();
     }
 
     // Exhibitor info cards. Public so a scanned QR resolves for anyone; the
@@ -27,7 +83,15 @@ service cloud.firestore {
     // pointing at a different booth.
     match /organizations/{orgId} {
       allow read: if true;
-      allow create: if verified() && request.auth.uid == orgId;
+      // Gated on the guest list as well as on the uid. This collection is the
+      // one thing in the database the whole world reads — it is the 3D hall and
+      // every scanned QR — so a card must never appear for an address the
+      // organiser did not admit as a company or a venture. The profile rule
+      // alone would not stop it: a client can create a card without ever
+      // writing a profile.
+      allow create: if verified()
+                    && request.auth.uid == orgId
+                    && invitedRole() in ['entrepreneur', 'corporate'];
       allow update: if verified()
                     && request.auth.uid == orgId
                     && request.resource.data.standCode == resource.data.standCode;
@@ -75,10 +139,27 @@ service cloud.firestore {
       // somewhere to happen in the same write, so it can never be agreed and
       // unjoinable. The requester cannot set it, which stops a link being
       // slipped into a meeting the host thinks is a booth visit.
+      //
+      // Ending is the exception, and the only one: a meeting is over when one
+      // of the two people in it says so, and which of them happened to host it
+      // has nothing to do with that. So the requester may write exactly one
+      // transition — confirmed to completed, touching nothing but `status`.
+      // Narrowed that hard because this is the only key a requester can move at
+      // all: without the `from confirmed` clause they could "complete" a
+      // request the host had not answered, and rate a meeting that never
+      // happened.
       allow update: if verified()
-                    && resource.data.organizationId == request.auth.uid
-                    && request.resource.data.diff(resource.data)
-                         .affectedKeys().hasOnly(['status', 'roomName']);
+                    && (
+                      (resource.data.organizationId == request.auth.uid
+                       && request.resource.data.diff(resource.data)
+                            .affectedKeys().hasOnly(['status', 'roomName']))
+                      ||
+                      (resource.data.requesterId == request.auth.uid
+                       && request.resource.data.diff(resource.data)
+                            .affectedKeys().hasOnly(['status'])
+                       && resource.data.status == 'confirmed'
+                       && request.resource.data.status == 'completed')
+                    );
       // Declining deletes the record, which frees the slot again. Either side
       // may withdraw: the visitor cancels, the exhibitor declines.
       allow delete: if verified()
@@ -112,8 +193,28 @@ service cloud.firestore {
 
     // The user's own profile: name, interests, wallpaper, avatar, saved
     // sessions and liked exhibitors.
+    //
+    // Split into create and update because admission is decided exactly once,
+    // at create: the role written here must be the role the guest list granted.
+    // This is the enforcement point for the whole invite system — the check in
+    // the signup screen only exists to explain the refusal, and a client that
+    // skipped it would still land here.
     match /users/{uid} {
-      allow read, write: if verified() && request.auth.uid == uid;
+      allow read: if (verified() && request.auth.uid == uid) || isAdmin();
+      allow create: if verified()
+                    && request.auth.uid == uid
+                    && request.resource.data.get('role', null) == invitedRole();
+      // The role is frozen afterwards. Without this a guest admitted as a
+      // visitor could create the profile the list allows and then quietly
+      // rewrite the field, which would make admission a formality. A profile
+      // that somehow has no role yet may still receive one — that is a signup
+      // abandoned before the audience was known, not an escalation.
+      allow update: if verified()
+                    && request.auth.uid == uid
+                    && (resource.data.get('role', null) == null
+                        || request.resource.data.get('role', null)
+                           == resource.data.get('role', null));
+      allow delete: if verified() && request.auth.uid == uid;
     }
   }
 }

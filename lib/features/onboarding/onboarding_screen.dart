@@ -15,10 +15,12 @@ import '../../core/widgets/section_header.dart';
 import '../../core/widgets/select_chip.dart';
 import '../../core/widgets/step_page.dart';
 import '../../data/auth_repository.dart';
+import '../../data/invite_repository.dart';
 import '../../data/organization_repository.dart';
 import '../../data/profile_repository.dart';
 import '../../domain/brand_color.dart';
 import '../../domain/investor_kind.dart';
+import '../../domain/invite.dart';
 import '../../domain/org_kind.dart';
 import '../../domain/organization.dart';
 import '../../domain/taxonomy.dart';
@@ -298,6 +300,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
         final stored = await ref.read(profileRepositoryProvider).load(uid);
         if (!mounted) return;
         if (await _rejectRoleMismatch(stored?.role, role)) return;
+        // The guest list gates new accounts only. An account that already
+        // carries a profile was admitted before this list existed, and its
+        // meetings, card and booth are all keyed to that uid — shutting it out
+        // now would strand every one of them.
+        if (stored == null && await _rejectUninvited(email, role)) return;
       }
 
       // Both card-publishing roles open a draft here, because the card is keyed
@@ -485,6 +492,52 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       _error =
           'Bu e-posta ${stored.label.toLowerCase()} hesabına ait. '
           'Geri dön ve ${stored.label} olarak devam et.';
+    });
+    return true;
+  }
+
+  /// Refuses an address the organiser never admitted, and an address admitted
+  /// as a different audience.
+  ///
+  /// This check is for the *message*, not for the security: the rule on
+  /// `users/{uid}` is what actually refuses to write a profile whose role the
+  /// guest list did not grant, and it cannot be talked out of it from a client.
+  /// What that rule cannot do is explain itself — it fails a fire-and-forget
+  /// write and the app carries on believing the account is real. So the check
+  /// runs here too, where there is a screen to say which door to use.
+  ///
+  /// Which is also why an unreadable guest list lets the attempt through: a
+  /// dropped connection must not read as "not invited" and lock out the event.
+  /// The rule still has the last word either way.
+  Future<bool> _rejectUninvited(String email, UserRole? chosen) async {
+    final lookup = await ref.read(inviteStoreProvider).find(email);
+    if (!mounted) return false;
+
+    final String complaint;
+    switch (lookup) {
+      case InviteUnknown():
+        return false;
+      case InviteFound(role: final invited):
+        // A row saved without an audience admits its guest to any of them —
+        // the organiser's half-filled form is not the guest's problem.
+        if (invited == null || invited == chosen) return false;
+        complaint =
+            'Bu e-posta ${invited.label} olarak tanımlı. '
+            'Geri dön ve ${invited.label} olarak kayıt ol.';
+      case InviteMissing():
+        complaint =
+            'Bu e-posta adresi etkinliğe tanımlı değil. '
+            'Kayıt için etkinlik ekibiyle iletişime geç.';
+    }
+
+    // Same reason as the role-mismatch path: a refused attempt must not leave
+    // the device holding a session it is not allowed to use.
+    await ref.read(authRepositoryProvider).signOut();
+    if (!mounted) return true;
+    setState(() {
+      _busy = false;
+      _notice = null;
+      _error = complaint;
     });
     return true;
   }

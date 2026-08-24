@@ -180,7 +180,7 @@ void main() {
 
     // The company's own hours, with what kind of meeting each one is.
     expect(find.text('Kiminle görüşeceksin?'), findsOneWidget);
-    expect(find.text('1 saat açık  ·  Yüz yüze'), findsOneWidget);
+    expect(find.text('1 görüşme açık  ·  Yüz yüze'), findsOneWidget);
 
     await tester.tap(find.text('Baykar'));
     await advance(tester, frames: 10);
@@ -271,9 +271,18 @@ void main() {
     expect(find.text('Nexora Robotik'), findsOneWidget);
 
     // The company ticked one in-person hour; the venture ticked nothing and so
-    // stands open for the whole 09:00–18:00 day, online.
-    expect(find.text('1 saat açık  ·  Yüz yüze'), findsOneWidget);
-    expect(find.text('18 saat açık  ·  Online'), findsOneWidget);
+    // stands open online.
+    //
+    // The venture's count is deliberately not asserted. It is the grid minus
+    // whatever the clock has already passed, and re-deriving that here would be
+    // reimplementing OrganizationSlot.isPast in the test — where it could agree
+    // with a bug. The count itself is covered by meeting_room_test; what this
+    // flow is about is that both rows appear and say which kind they are.
+    expect(find.text('1 görüşme açık  ·  Yüz yüze'), findsOneWidget);
+    expect(
+      find.textContaining('görüşme açık  ·  Online'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a returning founder is restored with their card', (

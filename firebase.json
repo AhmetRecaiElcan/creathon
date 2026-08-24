@@ -9,5 +9,18 @@
       "runtime": "nodejs22",
       "ignore": ["node_modules", ".git", "*.local", "*.log"]
     }
-  ]
+  ],
+  "emulators": {
+    "firestore": {
+      "port": 8085
+    },
+    "ui": {
+      "enabled": false
+    }
+  },
+  "hosting": {
+    "public": "build/admin",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  }
 }

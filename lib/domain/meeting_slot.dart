@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../core/util/time_format.dart';
+import 'availability_slot.dart';
 import 'event_session.dart';
 import 'meeting.dart';
 
@@ -51,11 +52,15 @@ abstract final class MeetingSlots {
   ///
   /// [agenda] and [meetings] are the user's own day, so the same slot can be
   /// free for one user and blocked for another.
+  ///
+  /// The window defaults to [SlotGrid]'s rather than repeating 9 and 18: two
+  /// copies of "when the event day is" drift the moment one of them is widened,
+  /// and this one and the exhibitor's grid have to describe the same day.
   static List<MeetingSlot> forDay({
     required List<EventSession> agenda,
     required List<Meeting> meetings,
-    int startHour = 9,
-    int endHour = 18,
+    int startHour = SlotGrid.startHour,
+    int endHour = SlotGrid.endHour,
     DateTime? day,
   }) {
     final base = day ?? DateTime.now();

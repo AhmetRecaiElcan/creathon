@@ -63,7 +63,22 @@ class _MeetingRequestSheetState
   Future<void> _send() async {
     final slot = _chosen;
     if (slot == null) {
-      setState(() => _error = 'Bir saat seç.');
+      // "Pick an hour" is only useful advice when there is one to pick. With
+      // every offered hour struck through — the day has moved past all of them,
+      // or they are all taken — it sends the visitor hunting for something that
+      // is not on the screen, which is exactly how this reads as the app being
+      // broken rather than the day being over.
+      final slots = ref.read(
+        organizationSlotsProvider(widget.organization.id),
+      );
+      final open = slots.where((slot) => slot.available);
+      setState(
+        () => _error = open.isEmpty
+            ? slots.isEmpty
+                  ? 'Kurum henüz görüşme saati açmadı.'
+                  : 'Kurumun açtığı saatlerin hepsi geçti veya doldu.'
+            : 'Bir saat seç.',
+      );
       return;
     }
 
@@ -109,8 +124,17 @@ class _MeetingRequestSheetState
   /// What the chosen slot commits the sender to, spelled out under the grid:
   /// the half-hour, whether it is a call or a walk, where to walk to, and what
   /// the exhibitor said the slot was for.
-  String _summaryFor(OrganizationSlot? slot) {
+  ///
+  /// Before anything is chosen it points at the grid — unless the grid has
+  /// nothing left to choose, in which case it says so. This sheet can be opened
+  /// from a card, which has no way of knowing the day has run out; the picker
+  /// list refuses the tap but the card does not, so the sheet has to be able to
+  /// explain itself on arrival rather than only after a failed send.
+  String _summaryFor(OrganizationSlot? slot, List<OrganizationSlot> slots) {
     if (slot == null) {
+      if (slots.every((slot) => !slot.available)) {
+        return 'Bu saatlerin hepsi geçti veya doldu — bugün talep gönderilemez.';
+      }
       return 'Kurumun açtığı saatler ve görüşme türü yukarıda.';
     }
     final place = switch (slot.mode) {
@@ -222,7 +246,7 @@ class _MeetingRequestSheetState
                       SizedBox(
                         height: 34,
                         child: Text(
-                          _error ?? _summaryFor(_chosen),
+                          _error ?? _summaryFor(_chosen, slots),
                           style: AppTypography.bodySmall.copyWith(
                             color: _error == null
                                 ? AppPalette.textSecondary

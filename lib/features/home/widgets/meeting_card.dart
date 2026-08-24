@@ -9,6 +9,7 @@ import '../../../core/util/clock.dart';
 import '../../../data/meeting_link_repository.dart';
 import '../../../domain/meeting.dart';
 import '../../meetings/meeting_feedback_sheet.dart';
+import '../../meetings/meetings_controller.dart';
 
 /// A meeting on the agenda. Shares the time-column layout with [SessionCard] so
 /// a mixed timeline still reads as one schedule, but carries the accent fill
@@ -37,10 +38,13 @@ class MeetingCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = Theme.of(context).colorScheme.primary;
 
-    // Read from the ticking clock rather than `DateTime.now()`, so the card
-    // turns itself over the moment the meeting ends instead of waiting for the
-    // user to leave the screen and come back.
-    final awaitsFeedback = meeting.awaitsFeedbackAt(nowOf(ref));
+    // Whether it is finished is now a stored fact, not a reading of the clock.
+    // The clock still decides one thing — whether the meeting has *started*,
+    // and so whether there is anything to end yet — and that is read from the
+    // ticking provider so the button appears on its own rather than waiting for
+    // the user to leave the screen and come back.
+    final awaitsFeedback = meeting.awaitsFeedback;
+    final canFinish = meeting.canFinishAt(nowOf(ref));
 
     final headline = asHost ? meeting.requesterName : meeting.organizationName;
     // The host is deciding who to give a slot to, so they get the fund and the
@@ -102,15 +106,13 @@ class MeetingCard extends ConsumerWidget {
                     // place of the stored status: "Onaylandı" on an hour that
                     // is already behind you tells you nothing you need.
                     Icon(
-                      awaitsFeedback
-                          ? Icons.task_alt_rounded
-                          : meeting.status.icon,
+                      meeting.status.icon,
                       size: 12,
                       color: awaitsFeedback ? accent : AppPalette.textTertiary,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      awaitsFeedback ? 'Tamamlandı' : meeting.status.label,
+                      meeting.status.label,
                       style: AppTypography.eyebrow.copyWith(
                         letterSpacing: 0.6,
                         color: awaitsFeedback ? accent : null,
@@ -216,14 +218,10 @@ class MeetingCard extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
-                // The whole point of an online meeting, and it outranks the
-                // answer buttons below: by the time a room exists the request
-                // has already been accepted, so the only thing left to do with
-                // this card is walk into the call.
-                // Once the half-hour is behind us the only thing left to do is
-                // say how it went, so the rating replaces both the join link
+                // Once someone has ended the meeting the only thing left to do
+                // is say how it went, so the rating replaces both the join link
                 // and the answer buttons rather than sitting alongside them —
-                // accepting a meeting that already happened is nonsense, and a
+                // accepting a meeting that is already over is nonsense, and a
                 // call nobody is in is a dead end.
                 if (awaitsFeedback) ...[
                   const SizedBox(height: AppSpace.md),
@@ -235,12 +233,33 @@ class MeetingCard extends ConsumerWidget {
                     onTap: () =>
                         showMeetingFeedbackSheet(context, meeting: meeting),
                   ),
-                ] else if (meeting.isJoinable) ...[
-                  const SizedBox(height: AppSpace.md),
-                  // The name the other side will see is not passed in: the
-                  // function picks it from the meeting record by which party is
-                  // calling, so the app cannot claim to be someone else.
-                  _JoinAction(meeting: meeting, color: accent),
+                ] else ...[
+                  // The whole point of an online meeting, and it outranks the
+                  // answer buttons below: by the time a room exists the request
+                  // has already been accepted, so the first thing to do with
+                  // this card is walk into the call.
+                  //
+                  // It stays here for as long as the meeting is agreed, past
+                  // the booked half-hour included. A call that overruns is the
+                  // normal case, and taking the link away mid-conversation was
+                  // the bug this whole change exists to fix.
+                  if (meeting.isJoinable) ...[
+                    const SizedBox(height: AppSpace.md),
+                    // The name the other side will see is not passed in: the
+                    // function picks it from the meeting record by which party
+                    // is calling, so the app cannot claim to be someone else.
+                    _JoinAction(meeting: meeting, color: accent),
+                  ],
+                  // Either side may end it, and ending it ends it for both:
+                  // one person left holding a live join button for a meeting
+                  // the other has walked out of is worse than either of them
+                  // being asked to confirm. In person there is no link to
+                  // follow, so this is the only thing on the card — which is
+                  // exactly why it cannot be host-only.
+                  if (canFinish) ...[
+                    const SizedBox(height: AppSpace.sm),
+                    _FinishAction(meeting: meeting),
+                  ],
                 ],
                 if (!awaitsFeedback && (onAccept != null || onDecline != null))
                   ...[
@@ -277,6 +296,91 @@ class MeetingCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Ends the meeting for both parties.
+///
+/// Does its own work through the controller rather than taking a callback,
+/// because the two screens that render this card pass different things: the
+/// host's home passes accept and decline, the requester's passes nothing at
+/// all. Ending belongs to both of them equally, so it cannot be something a
+/// parent has to remember to wire up.
+///
+/// Confirmed first. It cannot be undone from the app — the rating that follows
+/// is create-only — and a mis-tap during a live call would take the link away
+/// from both people at once.
+class _FinishAction extends ConsumerStatefulWidget {
+  const _FinishAction({required this.meeting});
+
+  final Meeting meeting;
+
+  @override
+  ConsumerState<_FinishAction> createState() => _FinishActionState();
+}
+
+class _FinishActionState extends ConsumerState<_FinishAction> {
+  bool _busy = false;
+
+  Future<void> _finish() async {
+    if (_busy) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppPalette.inkOverlay,
+        title: const Text('Görüşmeyi bitir'),
+        content: Text(
+          '${widget.meeting.organizationName} ile görüşme kapanacak ve iki '
+          'taraf da değerlendirme yapabilecek. Geri alınamaz.',
+          style: AppTypography.bodySmall,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Bitir'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(meetingsControllerProvider).finish(widget.meeting);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppPalette.inkOverlay,
+            content: Text(
+              'Görüşme bitirilemedi. Bağlantını kontrol edip tekrar dene.',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppPalette.textPrimary,
+              ),
+            ),
+          ),
+        );
+      return;
+    }
+    // No setState on success: the meeting's status change flows back through
+    // the stream and this widget goes away with the button.
+  }
+
+  @override
+  Widget build(BuildContext context) => _CardAction(
+    label: _busy ? 'Bitiriliyor…' : 'Görüşmeyi bitir',
+    icon: Icons.stop_circle_outlined,
+    color: AppPalette.textSecondary,
+    onTap: _busy ? () {} : _finish,
+  );
 }
 
 /// Opens the video room for a confirmed online meeting.

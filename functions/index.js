@@ -1,6 +1,7 @@
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {defineSecret, defineString} = require("firebase-functions/params");
 const {initializeApp} = require("firebase-admin/app");
+const {getAuth} = require("firebase-admin/auth");
 const {getFirestore} = require("firebase-admin/firestore");
 const jwt = require("jsonwebtoken");
 
@@ -162,5 +163,173 @@ exports.meetingJoinLink = onCall(
         url: `https://8x8.vc/${appId}/${room}?jwt=${token}`,
         expiresAt: (now + TOKEN_TTL_SECONDS) * 1000,
       };
+    },
+);
+
+/** The panel's region, matching every other callable in this file. */
+const REGION = "europe-west1";
+
+/**
+ * Confirms the caller runs the admin panel.
+ *
+ * Membership is a Firestore document nobody can write — the rules close
+ * `admins` to every client — so the only way one appears is the Firebase
+ * console. Read here rather than trusted from a custom claim for the same
+ * reason the panel checks it: this function bypasses security rules entirely,
+ * so it has to do its own door.
+ */
+async function requireAdmin(auth) {
+  if (!auth) {
+    throw new HttpsError("unauthenticated", "Oturum açman gerekiyor.");
+  }
+  const doc = await getFirestore().collection("admins").doc(auth.uid).get();
+  if (!doc.exists) {
+    throw new HttpsError("permission-denied", "Bu hesap yönetici değil.");
+  }
+  return auth.uid;
+}
+
+/**
+ * Deletes every document a query matches, in batches.
+ *
+ * Firestore caps a batch at 500 writes, and a fair's worth of meetings can
+ * exceed that for a busy exhibitor — so this pages rather than assuming the
+ * result set is small. Returns how many went, because the panel reports the
+ * teardown back to the operator and "done" with no numbers is not something an
+ * organiser can check.
+ */
+async function deleteMatching(query) {
+  const db = getFirestore();
+  let removed = 0;
+  for (;;) {
+    const snapshot = await query.limit(400).get();
+    if (snapshot.empty) return removed;
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    removed += snapshot.size;
+    if (snapshot.size < 400) return removed;
+  }
+}
+
+/** Firestore's `in` filter takes at most 30 values, so chunk the ids. */
+function chunk(values, size) {
+  const chunks = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
+ * Removes an account and everything keyed to it.
+ *
+ * Deleting a user from the Firebase console reaches Auth and nothing else: the
+ * card stays published, the booth stays coloured in the 3D hall for a company
+ * that no longer exists, and the meetings stay booked against slots nobody can
+ * free — the rules let only the two parties touch a request, so one left
+ * behind is unreachable forever. That is the whole reason this exists.
+ *
+ * The order is data first, account last, matching the app's own teardown in
+ * `AccountDeletion`. Reversed, a failure halfway through would leave documents
+ * whose owner is already gone, which is precisely the mess being cleaned up.
+ */
+exports.adminDeleteAccount = onCall(
+    {region: REGION, cors: true},
+    async (request) => {
+      const callerUid = await requireAdmin(request.auth);
+
+      const uid = request.data && request.data.uid;
+      if (typeof uid !== "string" || uid.length === 0) {
+        throw new HttpsError("invalid-argument", "Hesap kimliği eksik.");
+      }
+
+      const db = getFirestore();
+
+      // An operator must not be able to delete the panel's way in — their own
+      // account or a colleague's. Locking every admin out of the panel is not
+      // recoverable from the panel, and the console is the only way back.
+      if (uid === callerUid) {
+        throw new HttpsError(
+            "failed-precondition",
+            "Kendi yönetici hesabını buradan silemezsin.",
+        );
+      }
+      if ((await db.collection("admins").doc(uid).get()).exists) {
+        throw new HttpsError(
+            "failed-precondition",
+            "Bu hesap yönetici. Önce konsoldan admins kaydını sil.",
+        );
+      }
+
+      // Meetings first, and both sides of them: this account is the requester
+      // on some and the host on others.
+      const meetingIds = new Set();
+      for (const field of ["requesterId", "organizationId"]) {
+        const snapshot = await db
+            .collection("meetings")
+            .where(field, "==", uid)
+            .get();
+        snapshot.docs.forEach((doc) => meetingIds.add(doc.id));
+      }
+
+      let meetings = 0;
+      for (const ids of chunk([...meetingIds], 30)) {
+        const batch = db.batch();
+        ids.forEach((id) => batch.delete(db.collection("meetings").doc(id)));
+        await batch.commit();
+        meetings += ids.length;
+      }
+
+      // Ratings for those meetings, from *either* side. Querying by authorId
+      // alone would miss the counterpart's row: its authorId and organizationId
+      // both belong to the other party, so nothing about it names this account
+      // except the meeting it is attached to.
+      let feedback = 0;
+      for (const ids of chunk([...meetingIds], 30)) {
+        feedback += await deleteMatching(
+            db.collection("meetingFeedback").where("meetingId", "in", ids),
+        );
+      }
+      // Strays: a rating whose meeting was already gone before this ran.
+      feedback += await deleteMatching(
+          db.collection("meetingFeedback").where("authorId", "==", uid),
+      );
+
+      // The booth lock and the card go together — the floor plan derives
+      // occupancy from the card, so a lock left behind would hold a code that
+      // nothing can claim and nothing displays.
+      const stands = await deleteMatching(
+          db.collection("stands").where("orgId", "==", uid),
+      );
+      // The card is keyed by the uid, so it is a delete rather than a query.
+      const cardRef = db.collection("organizations").doc(uid);
+      const hadCard = (await cardRef.get()).exists;
+      if (hadCard) await cardRef.delete();
+
+      await db.collection("users").doc(uid).delete();
+
+      // Last, and tolerant of already being gone: an account the console
+      // deleted earlier is exactly the leftover this function is here to clear,
+      // and refusing at the final step would leave the documents behind again.
+      let authDeleted = true;
+      try {
+        await getAuth().deleteUser(uid);
+      } catch (error) {
+        if (error.code === "auth/user-not-found") {
+          authDeleted = false;
+        } else {
+          throw new HttpsError(
+              "internal",
+              `Hesap silinemedi: ${error.message}`,
+          );
+        }
+      }
+
+      // The guest list is deliberately untouched. Removing an account and
+      // withdrawing an invitation are different intents — a person whose
+      // account is deleted by mistake should be able to sign up again — and the
+      // panel has a separate button for the invitation.
+      return {meetings, feedback, stands, hadCard, authDeleted};
     },
 );

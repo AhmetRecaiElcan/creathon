@@ -129,7 +129,7 @@ class _PickerRow extends ConsumerWidget {
     final booked = ref.watch(meetingWithProvider(organization.id));
 
     // Counted off the same grid the request sheet renders, rather than off the
-    // declared hours: a card that promises "18 saat açık" at five in the
+    // declared hours: a card that still promises a full day at five in the
     // afternoon is a card that lies, and the visitor finds out only after
     // tapping through to a sheet of struck-through times.
     final slots = ref.watch(organizationSlotsProvider(organization.id));
@@ -159,13 +159,18 @@ class _PickerRow extends ConsumerWidget {
       );
       enabled = false;
     } else {
-      // What the row has to answer before a tap: how many hours, and of what
+      // What the row has to answer before a tap: how many openings, and of what
       // kind — walking to a booth and joining a call are different plans.
+      //
+      // "görüşme", not "saat": a slot is half an hour, so counting slots and
+      // calling them hours overstated the offer by double. It read as merely
+      // odd on a nine-hour day ("18 saat açık") and became impossible once the
+      // day was opened to the full clock, where it would claim 48 hours.
       final modes = {
         for (final slot in slots.where((slot) => slot.available)) slot.mode,
       };
       final kinds = modes.map((mode) => mode.label).join(' / ');
-      caption = '$open saat açık  ·  $kinds';
+      caption = '$open görüşme açık  ·  $kinds';
       trailing = const Icon(
         Icons.chevron_right_rounded,
         size: 22,

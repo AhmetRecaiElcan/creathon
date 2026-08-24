@@ -7,6 +7,16 @@ import 'investor_kind.dart';
 enum MeetingStatus {
   requested('Talep gönderildi', Icons.schedule_send_rounded),
   confirmed('Onaylandı', Icons.check_circle_rounded),
+
+  /// Ended by one of the two people who were in it, by pressing the button.
+  ///
+  /// Deliberately not something the clock can produce. A meeting is over when
+  /// the people in it say it is over, not when the half-hour they booked runs
+  /// out — a call that overruns is the normal case, not an error, and a card
+  /// that swapped the join link for a rating form mid-conversation would end
+  /// the meeting on their behalf.
+  completed('Tamamlandı', Icons.task_alt_rounded),
+
   declined('Reddedildi', Icons.cancel_rounded);
 
   const MeetingStatus(this.label, this.icon);
@@ -107,21 +117,39 @@ class Meeting {
       status == MeetingStatus.confirmed &&
       roomName != null;
 
-  /// Whether the meeting's half-hour is behind us.
+  /// Whether the meeting's booked half-hour is behind us.
   ///
   /// Takes the time rather than reading the clock so a caller that already
   /// watches a ticking clock gets an answer consistent with the rest of the
   /// frame — two widgets disagreeing about whether a meeting is over, because
   /// they each looked at the clock a millisecond apart, is a real bug.
+  ///
+  /// Says nothing about whether the meeting is *finished*: see [isOver].
   bool hasEndedBy(DateTime now) => now.isAfter(end);
+
+  /// Whether the meeting can be ended now.
+  ///
+  /// From its start time on, and only while it is agreed. Before it starts
+  /// there is nothing to end — backing out of a meeting that has not happened
+  /// is cancelling, which is a different act with a different button.
+  bool canFinishAt(DateTime now) =>
+      status == MeetingStatus.confirmed && !now.isBefore(start);
+
+  /// Whether the two parties are done with this meeting.
+  ///
+  /// A stored fact, not a calculation over the clock. This used to be
+  /// "confirmed and the half-hour has passed", which meant the join link
+  /// vanished and a rating form appeared while the call was still going — a
+  /// meeting that ran five minutes long looked, to both sides, like a meeting
+  /// that had already been rated out from under them. Now it takes someone
+  /// pressing *Görüşmeyi bitir*.
+  bool get isOver => status == MeetingStatus.completed;
 
   /// A meeting that happened and is still owed a rating.
   ///
-  /// Only a confirmed one: a request nobody ever answered did not happen, so
-  /// there is nothing to rate. Whether *this* account has already rated it is
-  /// not knowable here — that lives in the feedback collection.
-  bool awaitsFeedbackAt(DateTime now) =>
-      status == MeetingStatus.confirmed && hasEndedBy(now);
+  /// Whether *this* account has already rated it is not knowable here — that
+  /// lives in the feedback collection.
+  bool get awaitsFeedback => isOver;
 
   /// How the requester is introduced to the host: the fund and the kind when
   /// there are any, and the address when there are not — an exhibitor should

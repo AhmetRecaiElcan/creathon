@@ -151,7 +151,12 @@ class MeetingsController {
     // list and the clock keeps moving: a sheet left open across the half-hour
     // could still send this. Checked again here so the answer does not depend
     // on how long the sheet was on screen.
-    if (!start.isAfter(_now)) {
+    //
+    // Against the end, matching the grid: a half-hour that is under way is
+    // still a half-hour two people can spend together, and refusing it at 12:10
+    // while the grid still offers it would be the controller and the screen
+    // disagreeing — which is the one thing this re-check exists to avoid.
+    if (!end.isAfter(_now)) {
       throw const MeetingFailure(
         'Bu saatin üzerinden zaman geçti. İleri bir saat seç.',
       );
@@ -234,6 +239,15 @@ class MeetingsController {
     );
   }
 
+  /// Ends a meeting, for both parties.
+  ///
+  /// Either of them may call it, which is why it does not go through [respond]
+  /// — that one is the host answering a request, and its Firestore rule is
+  /// host-only. Ending has its own rule allowing the requester as well, narrowed
+  /// to exactly this one transition.
+  Future<void> finish(Meeting meeting) =>
+      _ref.read(meetingRepositoryProvider).finish(meeting);
+
   Future<void> respond(Meeting meeting, MeetingStatus status) {
     final needsRoom =
         status == MeetingStatus.confirmed &&
@@ -295,10 +309,12 @@ final organizationSlotsProvider =
             offer: offer,
             start: start,
             end: end,
-            // Measured against the slot's *start*: a meeting cannot begin in
-            // the past, and 14:00 stops being bookable at 14:00 rather than at
-            // half past, when it would already be half over.
-            isPast: !start.isAfter(now),
+            // Measured against the slot's *end*, not its start: at 12:10 the
+            // 12:00–12:30 half-hour is still running, and if nobody has taken
+            // it there is no reason it cannot be asked for and used. Closing it
+            // at 12:00 threw away twenty usable minutes of every hour, which at
+            // a fair is where most meetings actually get made.
+            isPast: !end.isAfter(now),
             clash: own,
             isWithThisOrganization: own?.organizationId == orgId,
             // A founder who has been booked by an investor is busy at that

@@ -55,6 +55,15 @@ abstract interface class MeetingRepository {
     MeetingStatus status, {
     String? roomName,
   });
+
+  /// Closes a meeting that has been held. Either party may call it.
+  ///
+  /// Separate from [respond] because it must **not** swallow its failure.
+  /// Answering a request is fire-and-forget — the host is looking at a list
+  /// that will redraw from the stream either way — but ending is a deliberate
+  /// press on a button, and a press that silently does nothing is how a person
+  /// ends up tapping it through a whole meeting.
+  Future<void> finish(Meeting meeting);
 }
 
 class FirestoreMeetingRepository implements MeetingRepository {
@@ -153,6 +162,21 @@ class FirestoreMeetingRepository implements MeetingRepository {
       });
     } catch (error) {
       debugPrint('Toplantı güncellenemedi: $error');
+    }
+  }
+
+  @override
+  Future<void> finish(Meeting meeting) async {
+    if (!firebaseReady) {
+      throw const MeetingFailure('Firebase bağlantısı kurulamadı.');
+    }
+    try {
+      await _meetings.doc(meeting.id).update({
+        'status': MeetingStatus.completed.name,
+      });
+    } catch (error) {
+      debugPrint('Toplantı bitirilemedi: $error');
+      throw const MeetingFailure('Görüşme bitirilemedi.');
     }
   }
 }

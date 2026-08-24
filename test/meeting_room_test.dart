@@ -67,9 +67,11 @@ void main() {
 
   test('a venture with no declared hours is open all day, online', () {
     final slots = card().bookableAvailability;
-    expect(slots, hasLength(18));
-    expect(slots.first.time, '09:00');
-    expect(slots.last.time, '17:30');
+    // "All day" means whatever SlotGrid currently says the day is — see the
+    // note on SlotGrid.endHour.
+    expect(slots, hasLength(SlotGrid.labels.length));
+    expect(slots.first.time, SlotGrid.labels.first);
+    expect(slots.last.time, SlotGrid.labels.last);
     expect(slots.every((slot) => slot.mode == MeetingMode.online), isTrue);
   });
 

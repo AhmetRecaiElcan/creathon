@@ -99,8 +99,17 @@ class AvailabilitySlot {
 /// One definition for both sides of the same grid: the exhibitor ticks slots
 /// out of it, and a card with no ticks at all is read as the whole of it.
 abstract final class SlotGrid {
-  static const startHour = 9;
-  static const endHour = 18;
+  static const startHour = 0;
+
+  /// Exclusive: the last slot starts half an hour before this, so 24 means the
+  /// day runs to 00:00 and 18 means it stops at 18:00.
+  ///
+  /// **These two numbers are the only definition of the event day.** Nothing
+  /// else — not `MeetingSlots.forDay`, not the tests — may hard-code an hour,
+  /// so widening or narrowing the day stays a one-line edit. It was opened to
+  /// midnight on 2026-08-24 at the organiser's request and is meant to be
+  /// pulled back later; putting `18` back here is the whole revert.
+  static const endHour = 24;
 
   static List<String> get labels => [
     for (var hour = startHour; hour < endHour; hour++)

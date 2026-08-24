@@ -1,3 +1,4 @@
+import 'package:creathon/domain/availability_slot.dart';
 import 'package:creathon/domain/event_session.dart';
 import 'package:creathon/domain/meeting.dart';
 import 'package:creathon/domain/meeting_slot.dart';
@@ -48,10 +49,14 @@ void main() {
         day: _day,
       );
 
-      // 09:00 to 18:00 is nine hours, so eighteen slots.
-      expect(slots, hasLength(18));
-      expect(slots.first.start, _at(9, 0));
-      expect(slots.last.end, _at(18, 0));
+      // Derived from SlotGrid, not written out: the event day has been widened
+      // once already and is meant to be narrowed again, and a test that
+      // hard-codes the hours turns each of those into a failure to chase
+      // rather than a one-line edit.
+      final hours = SlotGrid.endHour - SlotGrid.startHour;
+      expect(slots, hasLength(hours * 2));
+      expect(slots.first.start, _at(SlotGrid.startHour, 0));
+      expect(slots.last.end, _at(SlotGrid.endHour, 0));
       expect(slots.every((s) => s.available), isTrue);
     });
 
@@ -106,7 +111,14 @@ void main() {
 
     test('a session spanning the whole window leaves nothing free', () {
       final slots = MeetingSlots.forDay(
-        agenda: [_session(start: _at(9, 0), end: _at(18, 0))],
+        // "The whole window" has to mean the current window, not the one this
+        // test was written against.
+        agenda: [
+          _session(
+            start: _at(SlotGrid.startHour, 0),
+            end: _at(SlotGrid.endHour, 0),
+          ),
+        ],
         meetings: const [],
         day: _day,
       );

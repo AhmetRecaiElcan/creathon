@@ -4,6 +4,7 @@ import 'package:creathon/app.dart';
 import 'package:creathon/core/util/clock.dart';
 import 'package:creathon/data/auth_repository.dart';
 import 'package:creathon/data/event_repository.dart';
+import 'package:creathon/data/invite_repository.dart';
 import 'package:creathon/data/meeting_feedback_repository.dart';
 import 'package:creathon/data/meeting_link_repository.dart';
 import 'package:creathon/data/meeting_repository.dart';
@@ -11,6 +12,7 @@ import 'package:creathon/data/organization_repository.dart';
 import 'package:creathon/data/profile_repository.dart';
 import 'package:creathon/domain/event_session.dart';
 import 'package:creathon/domain/investor_kind.dart';
+import 'package:creathon/domain/invite.dart';
 import 'package:creathon/domain/meeting.dart';
 import 'package:creathon/domain/meeting_feedback.dart';
 import 'package:creathon/domain/org_kind.dart';
@@ -360,6 +362,17 @@ class FakeMeetingRepository implements MeetingRepository {
     }
     _changes.add(null);
   }
+
+  /// Set to make [finish] throw, so the card's failure path can be driven.
+  bool finishFails = false;
+
+  @override
+  Future<void> finish(Meeting meeting) async {
+    if (finishFails) throw const MeetingFailure('Görüşme bitirilemedi.');
+    _meetings.removeWhere((other) => other.id == meeting.id);
+    _meetings.add(meeting.copyWith(status: MeetingStatus.completed));
+    _changes.add(null);
+  }
 }
 
 /// A session anchored to today, so `isLiveAt` behaves the same whenever the
@@ -384,6 +397,35 @@ EventSession testSession({
   );
 }
 
+/// The guest list, in memory.
+///
+/// Left out of [pumpApp] by default on purpose: with no override the real store
+/// runs, `firebaseReady` is false under `flutter test`, and every lookup comes
+/// back [InviteUnknown] — so the admission gate stays open and the tests that
+/// predate it keep signing accounts up. Only a test that is *about* admission
+/// hands one of these in.
+class FakeInviteStore implements InviteStore {
+  FakeInviteStore({this.roles = const {}, this.readable = true});
+
+  /// Address (already lower-cased) to the audience it was admitted as.
+  final Map<String, UserRole> roles;
+
+  /// False stands in for a list that could not be read at all — the case that
+  /// must let a signup through rather than refuse it.
+  final bool readable;
+
+  final List<String> lookups = [];
+
+  @override
+  Future<InviteLookup> find(String email) async {
+    final id = Invite.idFor(email);
+    lookups.add(id);
+    if (!readable) return const InviteUnknown();
+    final role = roles[id];
+    return role == null ? const InviteMissing() : InviteFound(role);
+  }
+}
+
 Future<void> pumpApp(
   WidgetTester tester, {
   FakeAuthRepository? auth,
@@ -392,7 +434,12 @@ Future<void> pumpApp(
   FakeMeetingRepository? meetings,
   FakeMeetingLinkRepository? links,
   FakeMeetingFeedbackRepository? feedback,
+  FakeInviteStore? invites,
   List<EventSession> sessions = const [],
+  /// The instant the app runs at. Defaults to [testNow]; a test pins something
+  /// else when the behaviour under test is about *where inside* a half-hour the
+  /// clock is, which testNow's tidy 08:00 cannot express.
+  DateTime? clock,
 }) async {
   // A realistic phone viewport: on the default 800x600 test surface the lower
   // role cards fall outside the viewport, where they cannot be tapped.
@@ -415,9 +462,10 @@ Future<void> pumpApp(
           meetingLinkRepositoryProvider.overrideWithValue(links),
         if (feedback != null)
           meetingFeedbackRepositoryProvider.overrideWithValue(feedback),
+        if (invites != null) inviteStoreProvider.overrideWithValue(invites),
         eventsStreamProvider.overrideWith((ref) => Stream.value(sessions)),
         // Pinned, not ticking: see [testNow].
-        clockProvider.overrideWithValue(testNow),
+        clockProvider.overrideWithValue(clock ?? testNow),
       ],
       child: const TakeOffApp(),
     ),

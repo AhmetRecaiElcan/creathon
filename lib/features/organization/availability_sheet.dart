@@ -6,6 +6,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/widgets/accent_button.dart';
 import '../../core/widgets/glass_field.dart';
 import '../../core/widgets/glass_surface.dart';
+import '../../core/util/clock.dart';
 import '../../core/widgets/section_header.dart';
 import '../../domain/availability_slot.dart';
 import 'organization_controller.dart';
@@ -94,6 +95,33 @@ class _AvailabilitySheetState extends ConsumerState<_AvailabilitySheet> {
       if (widget.existing != null) widget.existing!.time,
     });
 
+    // Hours that have already gone by today.
+    //
+    // The grid covers the whole clock, so at nine in the morning its first six
+    // chips are the middle of the night — and an exhibitor reasonably reading
+    // the first chips as "the start of the day" would open hours that are dead
+    // the moment they are saved: every visitor sees them struck through and
+    // nobody can ask for one. This is the same cut-off the request sheet uses
+    // (`OrganizationSlot.isPast`), applied here so the offer cannot be made in
+    // the first place rather than only refused afterwards.
+    //
+    // The slot being edited stays tappable even when past: it is already the
+    // exhibitor's own, and locking them out of their own row would leave no way
+    // to change its kind or note.
+    // Closed at the half-hour's *end*, matching the grid the requester sees: at
+    // 12:10 the 12:00 slot is still running and still worth offering.
+    final now = ref.watch(clockProvider);
+    final past = <String>{
+      for (final label in SlotGrid.labels)
+        if (label != widget.existing?.time &&
+            !(AvailabilitySlot(time: label)
+                    .parseOn(now)
+                    ?.add(const Duration(minutes: 30))
+                    .isAfter(now) ??
+                true))
+          label,
+    };
+
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
@@ -137,6 +165,7 @@ class _AvailabilitySheetState extends ConsumerState<_AvailabilitySheet> {
                           label: label,
                           selected: _time == label,
                           taken: taken.contains(label),
+                          isPast: past.contains(label),
                           onTap: () => setState(() {
                             _time = label;
                             _error = null;
@@ -229,19 +258,31 @@ class _TimeChip extends StatelessWidget {
     required this.selected,
     required this.taken,
     required this.onTap,
+    this.isPast = false,
   });
 
   final String label;
   final bool selected;
   final bool taken;
+
+  /// Already gone by. Kept in the grid rather than filtered out for the same
+  /// reason the requester's sheet keeps them: a grid that silently shortened
+  /// through the day would read as the app losing hours, not as time passing.
+  final bool isPast;
+
   final VoidCallback onTap;
+
+  /// Open already or gone already — both mean "not offerable", and both are
+  /// drawn the same way. They differ only in why, and the time itself says
+  /// which: a struck-through 00:30 at nine in the morning explains itself.
+  bool get _closed => taken || isPast;
 
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
 
     return GestureDetector(
-      onTap: taken ? null : onTap,
+      onTap: _closed ? null : onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(
@@ -252,7 +293,7 @@ class _TimeChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadius.pill),
           color: selected
               ? accent.withValues(alpha: 0.24)
-              : Colors.white.withValues(alpha: taken ? 0.03 : 0.06),
+              : Colors.white.withValues(alpha: _closed ? 0.03 : 0.06),
           border: Border.all(
             color: selected
                 ? accent.withValues(alpha: 0.65)
@@ -263,8 +304,8 @@ class _TimeChip extends StatelessWidget {
           label,
           style: AppTypography.label.copyWith(
             fontSize: 13,
-            color: taken ? AppPalette.textTertiary : AppPalette.textPrimary,
-            decoration: taken ? TextDecoration.lineThrough : null,
+            color: _closed ? AppPalette.textTertiary : AppPalette.textPrimary,
+            decoration: _closed ? TextDecoration.lineThrough : null,
           ),
         ),
       ),

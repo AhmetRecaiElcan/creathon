@@ -484,12 +484,25 @@ void main() {
       org: exhibitor(id: orgId),
     );
 
-    // The hour is behind us, so the card says so on its own — nobody pressed
-    // anything to make this happen. And the answer buttons are gone: accepting
-    // a meeting that already took place is nonsense.
-    expect(find.text('Tamamlandı'), findsOneWidget);
-    expect(find.text('Değerlendir'), findsOneWidget);
+    // The booked half-hour is two hours behind us and the card still does NOT
+    // offer a rating. This is the whole contract: the clock cannot end a
+    // meeting, only one of the two people in it can — a call that overran used
+    // to have its join link swapped for a rating form mid-conversation.
+    expect(find.text('Onaylandı'), findsOneWidget);
+    expect(find.text('Değerlendir'), findsNothing);
+    // The answer buttons are gone all the same: it is already confirmed.
     expect(find.text('Onayla'), findsNothing);
+
+    // Ending it is a deliberate press, and a confirmed one.
+    expect(find.text('Görüşmeyi bitir'), findsOneWidget);
+    await tester.tap(find.text('Görüşmeyi bitir'));
+    await advance(tester, frames: 10);
+    await tester.tap(find.widgetWithText(TextButton, 'Bitir'));
+    await advance(tester, frames: 20);
+
+    expect(find.text('Tamamlandı'), findsOneWidget);
+    expect(find.text('Görüşmeyi bitir'), findsNothing);
+    expect(find.text('Değerlendir'), findsOneWidget);
 
     await tester.tap(find.text('Değerlendir'));
     await advance(tester, frames: 12);
@@ -542,7 +555,7 @@ void main() {
       requestFor(
         finished(),
         organizationId: orgId,
-      ).copyWith(status: MeetingStatus.confirmed),
+      ).copyWith(status: MeetingStatus.completed),
     ]);
 
     final feedback = await signInHost(
@@ -553,7 +566,9 @@ void main() {
     );
 
     // Nothing about the rating depends on how the two met — a booth visit that
-    // is over is as finished as a call that is over.
+    // has been ended is as finished as a call that has been ended. In person
+    // there is no link to follow, which is why the end button cannot be tied to
+    // the video call: it is the only thing on this card.
     expect(find.text('Yüz yüze'), findsOneWidget);
     expect(find.text('Tamamlandı'), findsOneWidget);
     expect(find.text('Görüşmeye katıl'), findsNothing);

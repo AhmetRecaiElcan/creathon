@@ -342,3 +342,212 @@ Not: `stands` üzerinde `update` hâlâ tamamen kapalı — stant başka bir kur
 devredilemez ve kurum kendi standını değiştiremez. Yalnızca sahibi
 **bırakabilir**, o da kartı tümden silmek demek. Yani stant değiştirmenin
 bedeli kartı, toplantıları ve kimliği kaybetmek; sessiz bir düzenleme değil.
+
+## Kayıt tanımlama ve yönetim paneli
+
+Kayıt artık açık değil: bir adres uygulamaya ancak T3 panelinde tanımlıysa ve
+**yalnızca tanımlandığı müşteri türünden** kayıt olabilir. Ziyaretçi olarak
+tanımlanan bir adres yatırımcı kapısından denerse reddedilir.
+
+### Nasıl çalışıyor
+
+`invites/{e-posta}` — doküman kimliği adresin kendisi, küçük harfe indirilmiş
+hâli. Bu katlama kararı Dart'ta tek bir yerde: `Invite.idFor`. Panel `Ahmet@x.com`
+yazarken telefon `ahmet@x.com` arıyorsa davetli bir konuk kapıda reddedilir, bu
+yüzden iki taraf da aynı fonksiyondan geçiyor; kural da `.lower()` ile aynısını
+yapıyor.
+
+Zorlama iki katmanlı ve ikisi farklı işler yapıyor:
+
+- **Kural** (`firebase/firestore.rules`) — `users/{uid}` üzerinde `create`,
+  yazılan `role` alanının davet listesinin verdiği rolle aynı olmasını şart
+  koşuyor. Rol sonradan **donuyor**: aksi hâlde ziyaretçi olarak girip alanı
+  sessizce yatırımcıya çevirmek mümkün olurdu. `organizations` üzerinde `create`
+  de listeye bağlı — bu koleksiyonu tüm dünya okuyor (3D salon ve her QR), yani
+  davetsiz bir hesap oraya sahte firma koyamamalı. **Güvenlik burada.**
+- **Kayıt ekranı** (`_rejectUninvited`) — kuralın yapamadığı şeyi yapıyor:
+  hangi kapıyı kullanacağını söylemek. Profil yazımı ateşle-ve-unut olduğu için
+  kural bir yazıyı reddettiğinde uygulama bunu fark etmez; mesajı buradan veriyor.
+
+Bu yüzden **davet listesi okunamazsa kayıt engellenmez** (`InviteUnknown`).
+Kopan bir bağlantı "davetli değilsin" diye okunursa ilk ağ tıksırığında tüm
+etkinlik kendi uygulamasından dışarıda kalır; yazının son sözü zaten kuralda.
+
+Liste yalnızca **yeni** hesapları süzüyor. `users/{uid}` dokümanı olan bir hesap
+daha önce kabul edilmiştir ve toplantıları, kartı, standı hep o uid'ye bağlıdır —
+listeden çıkarmak onu kapı dışında bırakmaz, sadece o adresle yeni kayıt açılmasını
+durdurur. Hesabı almak ayrı bir iş, kendi temizliğiyle (yukarıdaki bölüm).
+
+### Paneli ayağa kaldırma
+
+1. **Konsolda Web uygulaması kaydet** — Project settings → Your apps → Web.
+   Çıkan `apiKey` ve `appId` değerlerini
+   `lib/core/firebase/firebase_options.dart` içindeki `web` bloğuna yaz. Bu adım
+   yapılmadan panel kendi "Panel yapılandırılmamış" ekranını gösterir.
+2. **Yönetici hesabı** — panele girecek kişi için normal bir e-posta/şifre
+   hesabı aç (Authentication → Add user), sonra Firestore'da
+   `admins/{o hesabın uid'si}` diye bir doküman oluştur. İçeriği önemsiz.
+   Koleksiyona kimse yazamıyor, tek giriş yolu konsol — kendi üyeliğini
+   verebilen bir koleksiyon, davet listesini süs hâline getirirdi. Şifre koda
+   gömülmüyor: web paketini açan herkes okur.
+3. **Kuralları yayınla** — `firebase deploy --only firestore:rules`.
+4. **Derle ve yayınla:**
+   ```
+   flutter build web -t lib/admin/main_admin.dart -o build/admin
+   firebase deploy --only hosting
+   ```
+
+### Yayınlamadan önce yapılması gerekenler
+
+- **Mevcut test hesaplarının adreslerini panelde tanımla**, doğru rolleriyle.
+  Kural yalnızca `create`'i süzdüğü için kayıtlı hesaplar çalışmaya devam eder;
+  ama bir kurum kartını silip yeniden yayınlamak isterse `organizations` create
+  kuralına takılır.
+- **Jüri kendi kendine kayıt olamaz.** Demoda bunu adım olarak kullan: panelde
+  jürinin adresini canlı tanımla, telefonda o anda kayıt olsun.
+- Paneldeki liste `createdAt` alanına göre sıralanıyor; konsoldan **elle**
+  eklenen ve bu alanı olmayan bir satır sorguya hiç düşmez, yani panelde
+  görünmez. Satırları panelden ekle.
+
+### Kuralları test etme
+
+Davet kapısının zorlaması kurallarda, yani uygulama testlerinin ulaşamadığı bir
+yerde. Emülatöre karşı çalışan ayrı bir takım var:
+
+```
+cd firebase/rules_test && npm install && npm test
+```
+
+On senaryo: davetli ziyaretçinin geçmesi, aynı adresin yatırımcı rolüyle
+reddedilmesi, listede olmayan adresin hiç profil açamaması, büyük/küçük harfin
+eşleşmesi, rolün oluşturmadan sonra donması, doğrulanmamış hesabın reddi, kartın
+yalnızca davetli kurum/girişim tarafından yayınlanabilmesi, konuğun sadece kendi
+satırını okuyabilmesi, listeye yalnızca yöneticinin yazabilmesi ve kimsenin
+kendine yöneticilik verememesi. Emülatör portu `firebase.json` içinde 8085
+(8080 sistemde doluydu).
+
+## Panelden etkinlik atma
+
+Panelin ikinci sekmesi programı yönetiyor. Eklenen bir etkinlik **dört müşteri
+türünün ana sayfasında ve yatırımcının ETKİNLİKLER sekmesinde birden** görünür —
+uygulama koleksiyonun tamamını herkes için okuduğu için hedefleme yok, kopya yok.
+
+Form: ad, yer, tarih, başlangıç–bitiş saati, tür (`SessionKind`), opsiyonel
+konuşmacı/kurum ve opsiyonel sektörler. Sektörler süs değil: ziyaretçinin ana
+sayfası ilgi alanı örtüşmesine göre sıralıyor, yatırımcının etkinlik ekranı
+eşleşenleri yukarı alıyor.
+
+`events` kuralı artık `allow create, update, delete: if isAdmin()` — daha önce
+tamamen kapalıydı ve program yalnızca konsoldan elle giriliyordu. Okuma açık
+kalıyor; ziyaretçi hesabı olmadan da programı görebilmeli.
+
+**Silme hiçbir şeyi peşinden sürüklemiyor, kasıtlı olarak.** Kaydedilen etkinlik
+kullanıcının kendi profil dokümanında yalnızca bir id olarak duruyor ve
+`savedSessionsProvider` o id'leri canlı programa karşı çözüyor — silinen etkinlik
+çözülmeyi bırakır ve ajandadan kendiliğinden düşer. Panelin kullanıcı
+dokümanlarına yazma yetkisi yok, buna ihtiyacı da yok.
+
+## Toplantı saatleri
+
+Etkinlik günü tek bir yerde tanımlı: `SlotGrid.startHour` / `SlotGrid.endHour`
+(`lib/domain/availability_slot.dart`). `endHour` dışlayıcı, yani son yarım saatlik
+dilim ondan yarım saat önce başlıyor.
+
+**2026-08-24'te gün 00:00'a kadar açıldı** (`endHour: 18 → 24`), yani ızgara
+09:00–23:30 arası 30 dilim. Geri almak isteyince tüm iş o satıra `18` yazmak:
+`MeetingSlots.forDay` artık kendi 9/18 kopyasını taşımıyor, varsayılanlarını
+`SlotGrid`'den alıyor; testler de saatleri sabit yazmak yerine aynı sabitten
+türetiyor. Daha önce üç test saatleri elle yazdığı için genişletme üç ayrı
+başarısızlık üretmişti.
+
+## Panelden hesap silme
+
+Panelin **üçüncü ve son sekmesi** kayıtlı hesapları listeliyor ve tamamen
+silebiliyor. En sonda olması kasıtlı: veriyi kimsenin geri koyamayacağı şekilde
+yok eden tek bölüm o.
+
+Tarayıcıdan yapılamayan iki şey var — Auth kullanıcısı silmek admin SDK
+gerektiriyor, ve toplantı kuralları "yalnızca iki taraf dokunabilir" dediği için
+silinen hesabın toplantılarını panel temizleyemez. Bu yüzden iş
+`adminDeleteAccount` adlı callable Cloud Function'da (`functions/index.js`,
+`europe-west1`).
+
+Sıra, uygulamanın kendi `AccountDeletion`'ıyla aynı — **veri önce, hesap en son:**
+
+1. İki taraftaki toplantılar (`requesterId` ve `organizationId` ayrı ayrı taranır)
+2. O toplantılara verilmiş değerlendirmeler — `meetingId in [...]` ile, **her iki
+   taraftan**. Sadece `authorId == uid` sorgulamak karşı tarafın satırını kaçırır:
+   o satırda bu hesabı adlandıran hiçbir alan yok, bağlı olduğu toplantı dışında.
+3. `stands` kilidi ve `organizations/{uid}` kartı
+4. `users/{uid}`
+5. Authentication kullanıcısı
+
+Fonksiyonun kendi kapısı var: çağıranın `admins/{uid}` belgesi olmalı. Kurallar
+bypass edildiği için bunu kendisi kontrol etmek zorunda. İki de koruma var —
+operatör **kendi** hesabını ve **başka bir yöneticiyi** buradan silemiyor; tüm
+yöneticileri panelden kilitlemek panelden geri alınamaz, tek yol konsol.
+
+Auth'ta kullanıcı bulunamazsa fonksiyon durmuyor, devam ediyor: konsoldan daha
+önce silinmiş bir hesabın geride bıraktığı artık, temizlemek için bu fonksiyonun
+var olma sebebi.
+
+**Davet listesi satırına dokunulmuyor.** Hesabı silmek ve daveti geri çekmek
+farklı niyetler — yanlışlıkla silinen biri yeniden kayıt olabilmeli — ve davet
+için ayrı bir düğme var.
+
+Silme sonucu operatöre sayılarla dönüyor ("3 görüşme iptal edildi, kart
+kaldırıldı"), çünkü sayısız bir "silindi" organizatörün doğrulayamayacağı bir şey.
+
+### Fonksiyonu dağıtma
+
+```
+firebase deploy --only functions
+```
+
+Not: `firebase emulators:exec --only functions` bu makinede varsayılan 10 saniyelik
+keşif süresine takılıyor. Kod sorunu değil — `FUNCTIONS_DISCOVERY_TIMEOUT=60`
+verildiğinde iki fonksiyon da düzgün yükleniyor.
+
+## Görüşmeyi bitirme
+
+Bir toplantı, saatinin dolmasıyla değil, **içindeki iki kişiden biri "Görüşmeyi
+bitir"e bastığında** biter. `MeetingStatus.completed` saklanan bir durum; saatten
+türetilmiyor.
+
+Eskiden `awaitsFeedbackAt(now) = confirmed && now.isAfter(end)` idi. Yani yarım
+saat dolduğu anda katılma bağlantısı kaybolup yerine değerlendirme formu
+geliyordu — beş dakika uzayan bir görüşme, iki tarafa da "bu toplantı bitti,
+puanla" diye görünüyordu. Konuşma sürerken. Bildirilen hata buydu.
+
+Yeni davranış:
+
+- **Katılma bağlantısı, toplantı onaylı olduğu sürece durur** — rezerve edilen
+  yarım saat geçse bile. Uzayan bir görüşme normal durum.
+- **Bitir düğmesi başlangıç saatinden itibaren çıkar**, iki tarafta da. Öncesinde
+  bitirilecek bir şey yok; başlamamış bir toplantıdan çıkmak *iptal*, ayrı bir iş.
+- **Bitiren taraf ikisi için birden bitirir.** Biri çıkmışken diğerinin elinde
+  canlı bir katılma düğmesi kalması, onay sorulmasından daha kötü.
+- **Değerlendirme yalnızca bundan sonra gelir.** Süre dolsa bile düğmeye
+  basılmadan gelmez.
+
+Yüz yüze toplantıda katılınacak bir bağlantı yok, yani kartta tek şey bu düğme —
+bu yüzden bitirme video çağrısına bağlanamazdı.
+
+Kural tarafı: `meetings` üzerinde `update` artık iki kollu. Ev sahibi eskisi gibi
+`status` ve `roomName`'i oynatabiliyor. Talep eden ise **tek bir geçişi** yazabiliyor:
+`confirmed → completed`, yalnızca `status` anahtarına dokunarak. Bu kadar dar
+tutulmasının sebebi: `from confirmed` şartı olmasa talep eden, cevaplanmamış bir
+talebi "tamamlandı" yapıp hiç olmamış bir toplantıyı puanlayabilirdi; `hasOnly(['status'])`
+olmasa da ev sahibinin stant ziyareti sandığı bir toplantıya kendi görüşme odasını
+sokabilirdi. Dördü de `firebase/rules_test` içinde test edilmiş durumda.
+
+## Devam eden yarım saat talep edilebilir
+
+Bir dilim artık **başlarken değil, biterken** kapanıyor: saat 12:10'da 12:00–12:30
+hâlâ boşsa istenebiliyor. Eskisi her saatin kullanılabilir yirmi dakikasını çöpe
+atıyordu, ki fuarda toplantıların çoğu tam orada kuruluyor.
+
+Aynı eşik üç yerde birden: talep ızgarası (`organizationSlotsProvider`), kurumun
+saat açma sayfası, ve `MeetingsController.request`'in bağımsız yeniden kontrolü.
+Üçü ayrışırsa ekranın sunduğu bir saati denetleyici reddeder — iki kuralın en
+kötüsü.
