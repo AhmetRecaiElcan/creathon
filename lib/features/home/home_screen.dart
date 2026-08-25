@@ -9,13 +9,12 @@ import '../../core/widgets/section_header.dart';
 import '../../data/event_repository.dart';
 import '../../data/organization_repository.dart';
 import '../../domain/event_session.dart';
-import '../../domain/meeting.dart';
+import '../../domain/match_insight.dart';
 import '../../domain/organization.dart';
 import '../../domain/user_profile.dart';
 import '../../domain/user_role.dart';
-import '../meetings/meetings_controller.dart';
-import '../meetings/new_request_action.dart';
-import '../meetings/org_picker_sheet.dart';
+import '../matching/match_providers.dart';
+import '../matching/widgets/match_score_badge.dart';
 import '../organization/organization_controller.dart';
 import '../organization/widgets/org_card_sheet.dart';
 import '../organization/widgets/org_row.dart';
@@ -23,7 +22,6 @@ import '../profile/profile_controller.dart';
 import '../scan/scan_screen.dart';
 import 'home_providers.dart';
 import 'widgets/home_header.dart';
-import 'widgets/meeting_card.dart';
 import 'widgets/panel_row.dart';
 import 'widgets/session_card.dart';
 
@@ -48,11 +46,6 @@ class HomeScreen extends ConsumerWidget {
         .toList(growable: false);
     final loading = ref.watch(eventsStreamProvider).isLoading;
 
-    // Two directions, not one list: a founder answers investors *and* asks
-    // companies, and those are different sections with different controls.
-    final hosted = ref.watch(openHostedMeetingsProvider);
-    final sent = ref.watch(openSentMeetingsProvider);
-
     final isCorporate = role == UserRole.corporate;
     final publishesCard = role.publishesCard;
     final panels = isCorporate
@@ -61,19 +54,32 @@ class HomeScreen extends ConsumerWidget {
     final ownOrg = publishesCard
         ? ref.watch(organizationProvider).organization
         : null;
-    final hasHours = ownOrg?.availability.isNotEmpty ?? false;
     final ownPanel = ownOrg?.panelLabel == null ? null : ownOrg;
 
-    // Cards this account scanned and kept. A visitor keeps them on the agenda
-    // and an investor on their requests tab; the two card-publishing roles have
-    // nowhere else to look, so they get them here — a company saving a founder
-    // it might want to hire needs the list as much as anyone.
-    final favourites = role.publishesCard
-        ? ref
-              .watch(organizationsProvider)
-              .where((org) => profile.likedOrgIds.contains(org.id))
-              .toList(growable: false)
-        : const <Organization>[];
+    // Every published card scored against this account, so the two sections
+    // below can both show a percentage. Read once: the ranking is one list, and
+    // asking for it twice would rank the hall twice per build.
+    final ranked = publishesCard
+        ? ref.watch(matchInsightsProvider)
+        : const <MatchInsight>[];
+
+    // Cards this account scanned and kept. A visitor keeps them on the agenda;
+    // the two card-publishing roles have nowhere else to look, so they get them
+    // here — a company saving a founder it might want to hire needs the list as
+    // much as anyone.
+    final favourites = ranked
+        .where(
+          (insight) => profile.likedOrgIds.contains(insight.organization.id),
+        )
+        .toList(growable: false);
+
+    // Who this account should be talking to. The founder's side of what the
+    // investor's home has always been: the exhibitor looking for a pilot and
+    // the venture looking for a partner are asking the same question, and until
+    // now only one of them had a screen that answered it.
+    final matches = publishesCard
+        ? ref.watch(strongMatchesProvider)
+        : const <MatchInsight>[];
 
     // Read once so every card in this build agrees on what "now" means.
     final now = DateTime.now();
@@ -151,94 +157,17 @@ class HomeScreen extends ConsumerWidget {
               const SizedBox(height: AppSpace.xl),
             ],
 
-            // Nothing on either side yet. Each audience is missing something
-            // different, and an empty screen would read as a broken one.
-            if (hosted.isEmpty && sent.isEmpty && role != UserRole.visitor)
-              Reveal(
-                delay: const Duration(milliseconds: 220),
-                child: _NoMeetings(role: role, hasHours: hasHours),
-              ),
-
-            // The founder has no requests tab of their own, so the way into a
-            // company's open hours lives on their home screen — above the
-            // lists, because it is the thing they came to do.
-            if (role == UserRole.entrepreneur) ...[
-              if (hosted.isEmpty && sent.isEmpty)
-                const SizedBox(height: AppSpace.md),
-              Reveal(
-                delay: const Duration(milliseconds: 230),
-                child: NewRequestAction(
-                  onTap: () => showOrgPickerSheet(context),
-                  title: 'Görüşme talebi gönder',
-                  subtitle:
-                      'Saatini açan kurumları listele; günü, saati ve türünü '
-                      'gör.',
-                ),
-              ),
-              const SizedBox(height: AppSpace.xl),
-            ],
-
-            // Requests addressed to this account come first: somebody is
-            // waiting on an answer, which outranks anything else on the page.
-            if (hosted.isNotEmpty) ...[
-              Reveal(
-                delay: const Duration(milliseconds: 200),
-                child: SectionHeader(
-                  'TOPLANTI TALEPLERİ',
-                  trailing: Text(
-                    '${hosted.length} talep',
-                    style: AppTypography.bodySmall.copyWith(fontSize: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpace.lg),
-              for (var i = 0; i < hosted.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpace.md),
-                  child: Reveal(
-                    delay: Duration(milliseconds: 240 + i * 60),
-                    child: MeetingCard(
-                      meeting: hosted[i],
-                      asHost: true,
-                      // Only a request that is still open has anything to
-                      // answer; a confirmed one can still be called off.
-                      onAccept: hosted[i].status == MeetingStatus.requested
-                          ? () => ref
-                                .read(meetingsControllerProvider)
-                                .respond(hosted[i], MeetingStatus.confirmed)
-                          : null,
-                      onDecline: () => ref
-                          .read(meetingsControllerProvider)
-                          .respond(hosted[i], MeetingStatus.declined),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: AppSpace.xl),
-            ],
-
-            // Then the ones this account is waiting on.
-            if (sent.isNotEmpty) ...[
-              Reveal(
-                delay: const Duration(milliseconds: 210),
-                child: SectionHeader(
-                  role.canRequestMeetings ? 'GÖRÜŞMELERİM' : 'TOPLANTILARIM',
-                  trailing: Text(
-                    '${sent.length} kayıt',
-                    style: AppTypography.bodySmall.copyWith(fontSize: 12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpace.lg),
-              for (var i = 0; i < sent.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpace.md),
-                  child: Reveal(
-                    delay: Duration(milliseconds: 250 + i * 60),
-                    child: MeetingCard(meeting: sent[i]),
-                  ),
-                ),
-              const SizedBox(height: AppSpace.xl),
-            ],
+            // Meetings are not on this page any more — neither the requests
+            // waiting for an answer, nor the ones this account sent, nor the
+            // empty state that stood in for them. They all live on the
+            // GÖRÜŞMELER tab now.
+            //
+            // They were here first because the card-publishing roles had no tab
+            // of their own, and the section stayed after they got one. Two
+            // screens listing the same requests, each with its own accept and
+            // decline, meant answering in one place while looking at the other —
+            // and it pushed the programme far enough down that the home screen
+            // stopped being about the event.
 
             if (favourites.isNotEmpty)
               ..._orgSection(
@@ -246,8 +175,50 @@ class HomeScreen extends ConsumerWidget {
                 title: 'FAVORİLERİM',
                 count: '${favourites.length} kart',
                 items: favourites,
-                delay: 240,
+                delay: 200,
               ),
+
+            if (matches.isNotEmpty) ...[
+              Reveal(
+                delay: const Duration(milliseconds: 210),
+                child: SectionHeader(
+                  'EŞLEŞMELERİM',
+                  trailing: Text(
+                    '${matches.length} kart',
+                    style: AppTypography.bodySmall.copyWith(fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpace.sm),
+              Reveal(
+                delay: const Duration(milliseconds: 215),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: MatchEngineChip(
+                    status: ref.watch(matchEngineStatusProvider),
+                    model: ref.watch(matchModelProvider),
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpace.lg),
+              for (var i = 0; i < matches.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpace.md),
+                  child: Reveal(
+                    delay: Duration(milliseconds: 240 + i * 55),
+                    child: OrgRow(
+                      organization: matches[i].organization,
+                      caption: matches[i].caption,
+                      trailing: MatchScoreBadge(insight: matches[i]),
+                      onTap: () => showOrgCardSheet(
+                        context,
+                        organizationId: matches[i].organization.id,
+                      ),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: AppSpace.xl),
+            ],
 
             // Stage talks the exhibitors booked themselves. Kept separate from
             // the organiser's programme because that is what they are: a
@@ -346,7 +317,7 @@ class HomeScreen extends ConsumerWidget {
     BuildContext context, {
     required String title,
     required String count,
-    required List<Organization> items,
+    required List<MatchInsight> items,
     required int delay,
   }) => [
     Reveal(
@@ -366,10 +337,16 @@ class HomeScreen extends ConsumerWidget {
         child: Reveal(
           delay: Duration(milliseconds: delay + 40 + i * 55),
           child: OrgRow(
-            organization: items[i],
-            caption: _detailOf(items[i]),
-            onTap: () =>
-                showOrgCardSheet(context, organizationId: items[i].id),
+            organization: items[i].organization,
+            // The ranking's own words when there are any — a kept card is
+            // still a card this account was scored against, and "why did I
+            // keep this" is worth more here than a restatement of its tags.
+            caption: items[i].caption ?? _detailOf(items[i].organization),
+            trailing: MatchScoreBadge(insight: items[i]),
+            onTap: () => showOrgCardSheet(
+              context,
+              organizationId: items[i].organization.id,
+            ),
           ),
         ),
       ),
@@ -446,74 +423,6 @@ class _EmptyProgramme extends StatelessWidget {
                       'ajandana alabilirsin.',
             style: AppTypography.bodySmall,
           ),
-        ],
-      ),
-    );
-  }
-}
-/// The home screen before this account has a single meeting on it.
-///
-/// One widget for three audiences because the shape of the answer is the same —
-/// icon, sentence, what to do next — while the substance is not: the exhibitor
-/// waits (or has no hours open yet), the investor and the founder act, and the
-/// founder acts in two directions at once.
-class _NoMeetings extends StatelessWidget {
-  const _NoMeetings({required this.role, required this.hasHours});
-
-  final UserRole role;
-
-  /// Only meaningful for the roles that receive requests. No hours open is
-  /// something to go and fix; no requests yet is something to wait for.
-  final bool hasHours;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-
-    final (icon, title, body) = switch (role) {
-      UserRole.corporate => (
-        hasHours
-            ? Icons.mark_email_unread_outlined
-            : Icons.event_busy_rounded,
-        hasHours ? 'Henüz talep yok.' : 'Henüz saat açmadın.',
-        hasHours
-            ? 'Standındaki karekodu okutan ziyaretçiler açtığın saatler için '
-                  'talep gönderdiğinde burada görünecek.'
-            : 'Profil sekmesinden toplantı saatlerini aç; ziyaretçiler ancak o '
-                  'zaman senden randevu isteyebilir.',
-      ),
-      // The founder keeps no hours, so there is nothing here to go and fix —
-      // only the first request to send.
-      UserRole.entrepreneur => (
-        Icons.handshake_outlined,
-        'Henüz görüşme talebin yok.',
-        'Yukarıdaki listeden bir kuruma talep gönder; fuar alanında standa '
-            'dokunarak ya da standın karekodunu okutarak da ulaşabilirsin. '
-            'Kurumun açtığı saatler ve görüşmenin yüz yüze mi online mı '
-            'olduğu talep ekranında yazıyor.',
-      ),
-      _ => (
-        Icons.handshake_outlined,
-        'Henüz görüşmen yok.',
-        'GÖRÜŞMELER sekmesinden bir kuruma talep gönder; fuar alanındaki '
-            'standlara dokunarak ya da karekod okutarak da ulaşabilirsin.',
-      ),
-    };
-
-    return GlassSurface(
-      padding: const EdgeInsets.all(AppSpace.xl),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            size: 22,
-            color: role == UserRole.corporate ? AppPalette.textTertiary : accent,
-          ),
-          const SizedBox(height: AppSpace.md),
-          Text(title, style: AppTypography.titleSmall),
-          const SizedBox(height: AppSpace.xs),
-          Text(body, style: AppTypography.bodySmall),
         ],
       ),
     );

@@ -2,9 +2,11 @@ import 'package:creathon/core/widgets/accent_button.dart';
 import 'package:creathon/domain/availability_slot.dart';
 import 'package:creathon/domain/brand_color.dart';
 import 'package:creathon/domain/meeting.dart';
+import 'package:creathon/domain/meeting_brief.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
 import 'package:creathon/domain/user_role.dart';
+import 'package:creathon/data/meeting_brief_repository.dart';
 import 'package:creathon/data/meeting_link_repository.dart';
 import 'package:creathon/data/meeting_repository.dart';
 import 'package:creathon/data/organization_repository.dart';
@@ -115,9 +117,16 @@ void main() {
     expect(meetings.meetings.single.organizationId, 'org-1');
     expect(meetings.meetings.single.startLabel, '10:00');
 
-    // The sheet closes itself, and the meeting is on the home screen.
+    // The sheet closes itself, and the meeting lands on the visitor's agenda.
+    //
+    // Not on the home screen: the meeting sections moved off it entirely. A
+    // visitor has no görüşmeler tab either — their meetings and their saved
+    // sessions are one day, which is what the agenda is for.
     await advance(tester, frames: 30);
-    expect(find.text('TOPLANTILARIM'), findsOneWidget);
+    await tester.tap(find.text('AJANDA'));
+    await advance(tester, frames: 12);
+    expect(find.text('Nexora Robotik'), findsOneWidget);
+    expect(find.text('10:00'), findsWidgets);
   });
 
   testWidgets('an hour the visitor already booked is offered as blocked', (
@@ -277,8 +286,10 @@ void main() {
     await tester.enterText(fields.at(1), 'takeoff2026');
     await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
     await advance(tester, frames: 16);
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
 
-    expect(find.text('TOPLANTI TALEPLERİ'), findsOneWidget);
+    expect(find.text('GELEN TALEPLER'), findsOneWidget);
     expect(
       find.text('Elif Tunca'),
       findsOneWidget,
@@ -344,6 +355,8 @@ void main() {
     await tester.enterText(fields.at(1), 'takeoff2026');
     await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
     await advance(tester, frames: 16);
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
 
     // Nothing to dial into before the host has agreed to the call, and nothing
     // to ask the signing function for either.
@@ -353,6 +366,8 @@ void main() {
 
     await tester.tap(find.text('Onayla'));
     await advance(tester, frames: 16);
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
 
     final confirmed = meetings.meetings.single;
     expect(confirmed.status, MeetingStatus.confirmed);
@@ -413,6 +428,9 @@ void main() {
     await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
     await advance(tester, frames: 16);
 
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
+
     await tester.tap(find.text('Görüşmeye katıl'));
     await advance(tester, frames: 16);
 
@@ -430,6 +448,7 @@ void main() {
     required String email,
     required FakeMeetingRepository meetings,
     required Organization org,
+    FakeMeetingBriefRepository? briefs,
   }) async {
     final auth = FakeAuthRepository()..verified = true;
     final feedback = FakeMeetingFeedbackRepository();
@@ -448,6 +467,7 @@ void main() {
       ),
       meetings: meetings,
       feedback: feedback,
+      briefs: briefs,
     );
 
     await chooseRole(tester, UserRole.corporate);
@@ -459,6 +479,11 @@ void main() {
     await tester.enterText(fields.at(1), 'takeoff2026');
     await tester.tap(find.widgetWithText(AccentButton, 'Giriş yap'));
     await advance(tester, frames: 16);
+
+    // A company's meetings are on their own tab now, not on the home screen —
+    // so the helper lands where the thing under test actually is.
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
 
     return feedback;
   }
@@ -613,5 +638,156 @@ void main() {
     expect(find.text('Onaylandı'), findsOneWidget);
     expect(find.text('Tamamlandı'), findsNothing);
     expect(find.text('Değerlendir'), findsNothing);
+    // It can still be *ended* — see the next test for why.
+    expect(find.text('Görüşmeyi bitir'), findsOneWidget);
+  });
+
+  testWidgets('the way out is offered wherever the way in is', (tester) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+
+    // Two hours ahead of the pinned clock: agreed, joinable, not yet begun.
+    final meetings = FakeMeetingRepository([
+      requestFor(
+        upcoming(),
+        organizationId: orgId,
+        mode: MeetingMode.online,
+      ).copyWith(status: MeetingStatus.confirmed, roomName: 'oda-1'),
+    ]);
+
+    await signInHost(
+      tester,
+      email: email,
+      meetings: meetings,
+      org: exhibitor(id: orgId),
+    );
+
+    // The join button has never been gated on the start time — a room is a room
+    // whenever you walk into it. Ending was, and that left the app able to put
+    // two people into a call three hours early with no way to close it. So the
+    // two conditions are the same one now: a confirmed meeting.
+    expect(find.text('Görüşmeye katıl'), findsOneWidget);
+    expect(
+      find.text('Görüşmeyi bitir'),
+      findsOneWidget,
+      reason: 'a meeting you can walk into must be one you can close',
+    );
+
+    // Closing it before its hour is allowed, but not quietly: the dialog says
+    // the meeting has not started, because nothing else stops a mis-tap.
+    await tester.tap(find.text('Görüşmeyi bitir'));
+    await advance(tester, frames: 10);
+    expect(find.textContaining('henüz başlamadı'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Bitir'));
+    await advance(tester, frames: 20);
+
+    expect(meetings.meetings.single.status, MeetingStatus.completed);
+    expect(find.text('Değerlendir'), findsOneWidget);
+    expect(find.text('Görüşmeye katıl'), findsNothing);
+  });
+
+  testWidgets('a confirmed meeting can be briefed before it starts', (
+    tester,
+  ) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+    final start = upcoming();
+
+    final briefs = FakeMeetingBriefRepository(
+      brief: const MeetingBrief(
+        why: 'İkiniz de otonom seyir tarafındasınız ve o pilotu arıyor.',
+        questions: [
+          'Seyir yazılımınız hangi sensör setiyle doğrulandı?',
+          'Pilotu hangi filoda, kaç araçla denemek istiyorsunuz?',
+          'Sertifikasyon için hangi standardı hedefliyorsunuz?',
+        ],
+        theirAsk: 'Muhtemelen sahada test edebileceği bir araç filosu isteyecek.',
+        prep: 'Geçen çeyrekteki saha testi sonuçlarını yanında tut.',
+      ),
+    );
+
+    // In person, deliberately: this is the card that used to offer nothing but
+    // a way to end a meeting that had not happened yet.
+    final meetings = FakeMeetingRepository([
+      requestFor(
+        start,
+        organizationId: orgId,
+      ).copyWith(status: MeetingStatus.confirmed),
+    ]);
+
+    await signInHost(
+      tester,
+      email: email,
+      meetings: meetings,
+      org: exhibitor(id: orgId),
+      briefs: briefs,
+    );
+
+    expect(find.text('Görüşmeye katıl'), findsNothing);
+    await tester.tap(find.text('Brifing al'));
+    await advance(tester, frames: 16);
+
+    // Asked about the meeting it was opened from, and about that one only.
+    expect(
+      briefs.requested,
+      [Meeting.idFor(organizationId: orgId, start: start)],
+    );
+
+    // The counterpart and the hour, so the sheet stands on its own.
+    expect(find.text('GÖRÜŞME BRİFİNGİ'), findsOneWidget);
+    expect(
+      find.text('Elif Tunca'),
+      findsNWidgets(2),
+      reason: 'once on the sheet and once on the card still behind it',
+    );
+
+    // All three questions, and the two notes around them.
+    expect(find.text('SORACAKLARIM'), findsOneWidget);
+    expect(find.textContaining('hangi sensör setiyle'), findsOneWidget);
+    expect(find.textContaining('kaç araçla denemek'), findsOneWidget);
+    expect(find.textContaining('hangi standardı'), findsOneWidget);
+    expect(find.textContaining('saha testi sonuçlarını'), findsOneWidget);
+
+    // Named and hedged: whoever walks into the room with these questions is
+    // entitled to know a model wrote them.
+    expect(
+      find.textContaining('Gemini 2.5 tarafından'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a refused brief says why and offers another try', (tester) async {
+    const email = 'bilgi@nexora.com';
+    final orgId = uidFor(email);
+
+    final briefs = FakeMeetingBriefRepository(
+      failure: const BriefFailure('Yapay zekâ anahtarı tanımlı değil.'),
+    );
+
+    await signInHost(
+      tester,
+      email: email,
+      meetings: FakeMeetingRepository([
+        requestFor(
+          upcoming(),
+          organizationId: orgId,
+        ).copyWith(status: MeetingStatus.confirmed),
+      ]),
+      org: exhibitor(id: orgId),
+      briefs: briefs,
+    );
+
+    await tester.tap(find.text('Brifing al'));
+    await advance(tester, frames: 16);
+
+    // The function's own words. Unlike the ranking there is no second engine
+    // behind this one, so the only honest thing to offer is another attempt.
+    expect(find.text('Yapay zekâ anahtarı tanımlı değil.'), findsOneWidget);
+    expect(find.text('Tekrar dene'), findsOneWidget);
+
+    await tester.tap(find.text('Tekrar dene'));
+    await advance(tester, frames: 16);
+    expect(briefs.requested.length, 2);
   });
 }

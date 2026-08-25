@@ -17,6 +17,7 @@ import '../../domain/brand_color.dart';
 import '../../domain/taxonomy.dart';
 import '../expo/expo_scene.dart';
 import '../expo/stand_logos.dart';
+import '../matching/widgets/match_preview.dart';
 import 'organization_controller.dart';
 import 'widgets/org_card.dart';
 import 'widgets/panel_picker.dart';
@@ -550,6 +551,14 @@ class OrgSummaryPage extends ConsumerWidget {
           child: isStartup
               ? const _StartupPublishNote()
               : _PublishWarning(standCode: organization.standCode),
+        ),
+        // The other half of publishing a card: who is already on the floor for
+        // you. The founder's field was collected two steps ago and has been
+        // ranking the hall ever since — this is where they first see it.
+        const SizedBox(height: AppSpace.lg),
+        const Reveal(
+          delay: Duration(milliseconds: 280),
+          child: MatchPreview(),
         ),
       ],
     );

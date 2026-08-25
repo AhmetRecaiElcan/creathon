@@ -174,6 +174,20 @@ class FirestoreMeetingRepository implements MeetingRepository {
       await _meetings.doc(meeting.id).update({
         'status': MeetingStatus.completed.name,
       });
+    } on FirebaseException catch (error) {
+      debugPrint('Toplantı bitirilemedi: ${error.code} ${error.message}');
+      // Named rather than folded into "check your connection", because the
+      // likely cause is neither the user's nor the network's: the rule that
+      // lets the *requester* end a meeting is newer than the app, and until it
+      // is published only the host's side works. Told that "the connection
+      // failed", whoever is testing goes looking in the wrong place — and a
+      // real user reports that only one side of the meeting can end it.
+      throw MeetingFailure(
+        error.code == 'permission-denied'
+            ? 'Bu görüşmeyi bitirme yetkisi yok. Sunucu kuralları güncel '
+                  'olmayabilir.'
+            : 'Görüşme bitirilemedi.',
+      );
     } catch (error) {
       debugPrint('Toplantı bitirilemedi: $error');
       throw const MeetingFailure('Görüşme bitirilemedi.');

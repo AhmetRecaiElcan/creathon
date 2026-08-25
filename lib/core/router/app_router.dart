@@ -10,6 +10,7 @@ import '../../features/expo/expo_screen.dart';
 import '../../features/home/home_screen.dart';
 import '../../features/home/investor_home_screen.dart';
 import '../../features/meetings/investor_meetings_screen.dart';
+import '../../features/meetings/meetings_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/organization/org_card_screen.dart';
 import '../../features/organization/org_profile_screen.dart';
@@ -112,6 +113,17 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(
             routes: [
               GoRoute(path: '/events', builder: (_, _) => const EventsScreen()),
+            ],
+          ),
+          // Sixth branch: görüşmeler for the company and the founder. The
+          // investor's own meetings screen stays on the third branch — theirs is
+          // a different page, built around a fund that publishes no card.
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/meetings',
+                builder: (_, _) => const MeetingsScreen(),
+              ),
             ],
           ),
         ],

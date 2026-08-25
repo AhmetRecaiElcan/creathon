@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:creathon/app.dart';
 import 'package:creathon/core/util/clock.dart';
+import 'package:creathon/data/ai_match_repository.dart';
 import 'package:creathon/data/auth_repository.dart';
 import 'package:creathon/data/event_repository.dart';
 import 'package:creathon/data/invite_repository.dart';
+import 'package:creathon/data/meeting_brief_repository.dart';
 import 'package:creathon/data/meeting_feedback_repository.dart';
 import 'package:creathon/data/meeting_link_repository.dart';
 import 'package:creathon/data/meeting_repository.dart';
@@ -13,7 +15,9 @@ import 'package:creathon/data/profile_repository.dart';
 import 'package:creathon/domain/event_session.dart';
 import 'package:creathon/domain/investor_kind.dart';
 import 'package:creathon/domain/invite.dart';
+import 'package:creathon/domain/match_insight.dart';
 import 'package:creathon/domain/meeting.dart';
+import 'package:creathon/domain/meeting_brief.dart';
 import 'package:creathon/domain/meeting_feedback.dart';
 import 'package:creathon/domain/org_kind.dart';
 import 'package:creathon/domain/organization.dart';
@@ -426,6 +430,62 @@ class FakeInviteStore implements InviteStore {
   }
 }
 
+/// A briefing the test writes itself, standing in for Gemini.
+///
+/// Either a brief or a failure, never both: the sheet has exactly two outcomes
+/// and both are worth a test — one renders three questions, the other renders
+/// the function's own complaint and a way to ask again.
+class FakeMeetingBriefRepository implements MeetingBriefRepository {
+  FakeMeetingBriefRepository({
+    this.brief,
+    this.failure,
+    this.model = 'gemini-2.5-flash-lite',
+  });
+
+  final MeetingBrief? brief;
+  final BriefFailure? failure;
+  final String model;
+
+  /// Which meetings were briefed, so a test can assert the sheet asked about
+  /// the meeting it was opened from and not some other one.
+  final requested = <String>[];
+
+  @override
+  Future<BriefResult> briefFor(Meeting meeting) async {
+    requested.add(meeting.id);
+    final refusal = failure;
+    if (refusal != null) throw refusal;
+    return BriefResult(brief: brief!, model: model, cached: false);
+  }
+}
+
+/// A ranking the test writes itself, standing in for Gemini.
+///
+/// The point of overriding at this seam rather than mocking the callable is
+/// that everything above it is the code that ships: the merge with
+/// [CardMatcher], the reordering, the percentage on the badge and the sentence
+/// under the name all run for real against a verdict the test controls.
+class FakeAiMatchRepository implements AiMatchRepository {
+  FakeAiMatchRepository(this.verdicts, {this.model = 'gemini-2.5-flash-lite'});
+
+  final List<AiMatch> verdicts;
+  final String model;
+
+  /// How many times the ranking was asked for, so a test can assert the model
+  /// is not being re-run on every rebuild.
+  int calls = 0;
+
+  @override
+  Future<AiRanking> rank() async {
+    calls++;
+    return AiRanking(
+      matches: {for (final verdict in verdicts) verdict.orgId: verdict},
+      model: model,
+      cached: false,
+    );
+  }
+}
+
 Future<void> pumpApp(
   WidgetTester tester, {
   FakeAuthRepository? auth,
@@ -434,7 +494,12 @@ Future<void> pumpApp(
   FakeMeetingRepository? meetings,
   FakeMeetingLinkRepository? links,
   FakeMeetingFeedbackRepository? feedback,
+  FakeMeetingBriefRepository? briefs,
   FakeInviteStore? invites,
+  /// The model's ranking. Defaults to [OfflineAiMatchRepository], so a test
+  /// that does not care about the AI path gets the deterministic scorer and no
+  /// pending future — which is also exactly what a demo with no key gets.
+  AiMatchRepository? aiMatches,
   List<EventSession> sessions = const [],
   /// The instant the app runs at. Defaults to [testNow]; a test pins something
   /// else when the behaviour under test is about *where inside* a half-hour the
@@ -462,7 +527,12 @@ Future<void> pumpApp(
           meetingLinkRepositoryProvider.overrideWithValue(links),
         if (feedback != null)
           meetingFeedbackRepositoryProvider.overrideWithValue(feedback),
+        if (briefs != null)
+          meetingBriefRepositoryProvider.overrideWithValue(briefs),
         if (invites != null) inviteStoreProvider.overrideWithValue(invites),
+        aiMatchRepositoryProvider.overrideWithValue(
+          aiMatches ?? const OfflineAiMatchRepository(),
+        ),
         eventsStreamProvider.overrideWith((ref) => Stream.value(sessions)),
         // Pinned, not ticking: see [testNow].
         clockProvider.overrideWithValue(clock ?? testNow),

@@ -26,6 +26,7 @@ import '../../domain/organization.dart';
 import '../../domain/taxonomy.dart';
 import '../../domain/user_profile.dart';
 import '../../domain/user_role.dart';
+import '../matching/widgets/match_preview.dart';
 import '../organization/org_setup_pages.dart';
 import '../organization/organization_controller.dart';
 import '../organization/venture_setup_pages.dart';
@@ -1786,6 +1787,14 @@ class _SummaryPage extends StatelessWidget {
             accent: role.accent,
             values: profile.sectors.toList(),
           ),
+        ),
+        // Last, because it is the only thing on this page the user did not
+        // type: everything above is their own answers read back, this is what
+        // the answers bought.
+        const SizedBox(height: AppSpace.md),
+        const Reveal(
+          delay: Duration(milliseconds: 380),
+          child: MatchPreview(),
         ),
       ],
     );

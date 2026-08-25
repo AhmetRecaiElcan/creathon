@@ -2,6 +2,7 @@ import 'package:creathon/core/widgets/accent_button.dart';
 import 'package:creathon/data/organization_repository.dart';
 import 'package:creathon/domain/availability_slot.dart';
 import 'package:creathon/domain/brand_color.dart';
+import 'package:creathon/domain/meeting.dart';
 import 'package:creathon/domain/org_kind.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
@@ -127,10 +128,66 @@ void main() {
       reason: "the venture's field also orders the founder's programme",
     );
 
-    // The founder's own tabs: a card, and no agenda.
+    // The founder's own tabs: a card and a meetings tab, and no agenda. The
+    // meetings tab was added because their meetings had only ever been a
+    // section part-way down the home screen, which is where the button that
+    // ends one went unfound.
     expect(find.text('KARTIM'), findsOneWidget);
+    expect(find.text('GÖRÜŞMELER'), findsOneWidget);
     expect(find.text('AJANDA'), findsNothing);
-    expect(find.text('GÖRÜŞMELER'), findsNothing);
+  });
+
+  testWidgets('the founder ends a meeting from their görüşmeler tab', (
+    tester,
+  ) async {
+    const email = 'elif@example.com';
+    final founderId = uidFor(email);
+    // Twenty minutes in: the half-hour is running, so the meeting has started
+    // and can be ended, but its booked time has not expired either.
+    final start = testNow.subtract(const Duration(minutes: 20));
+
+    final meetings = FakeMeetingRepository([
+      Meeting(
+        id: Meeting.idFor(organizationId: founderId, start: start),
+        organizationId: founderId,
+        organizationName: 'Nexora Robotik',
+        requesterId: 'investor-1',
+        requesterName: 'Deniz Karaca',
+        requesterCompany: 'Ada Ventures',
+        start: start,
+        end: start.add(const Duration(minutes: 30)),
+        location: 'Online görüşme',
+        status: MeetingStatus.confirmed,
+        mode: MeetingMode.online,
+        roomName: 'oda-1',
+      ),
+    ]);
+
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository(),
+      meetings: meetings,
+    );
+    await completeEntrepreneurOnboarding(tester, auth: auth);
+
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
+
+    // The tab is the whole record, both sides of it — this one is a request the
+    // founder is hosting.
+    expect(find.text('GELEN TALEPLER'), findsOneWidget);
+    expect(find.text('Deniz Karaca'), findsOneWidget);
+    expect(find.text('Değerlendir'), findsNothing);
+
+    await tester.tap(find.text('Görüşmeyi bitir'));
+    await advance(tester, frames: 10);
+    await tester.tap(find.widgetWithText(TextButton, 'Bitir'));
+    await advance(tester, frames: 20);
+
+    expect(meetings.meetings.single.status, MeetingStatus.completed);
+    expect(find.text('Değerlendir'), findsOneWidget);
   });
 
   testWidgets('the venture card shows the stage and can be scanned', (
@@ -175,6 +232,11 @@ void main() {
     );
     await completeEntrepreneurOnboarding(tester, auth: auth);
 
+    // The way into a company's open hours is on the görüşmeler tab now, not on
+    // the home screen.
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
+
     await tester.tap(find.text('Görüşme talebi gönder'));
     await advance(tester, frames: 10);
 
@@ -202,7 +264,9 @@ void main() {
     expect(meetings.meetings.single.organizationId, 'org-1');
     expect(meetings.meetings.single.requesterId, founderId);
     expect(meetings.meetings.single.mode, MeetingMode.inPerson);
-    expect(find.text('GÖRÜŞMELERİM'), findsOneWidget);
+    // Back on the tab it was sent from, under the section for requests this
+    // account sent rather than received.
+    expect(find.text('GÖNDERDİKLERİM'), findsOneWidget);
   });
 
   testWidgets('a founder is never asked to keep hours', (tester) async {
@@ -216,9 +280,13 @@ void main() {
     await completeEntrepreneurOnboarding(tester, auth: auth);
 
     // The founder walks the hall asking; there is no availability grid to fill
-    // and no "you have not opened any hours yet" to answer.
+    // and no "you have not opened any hours yet" to answer. That distinction
+    // now lives on the görüşmeler tab's empty state, which is where the nudge
+    // moved when the meeting sections left the home screen.
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
     expect(find.text('Henüz saat açmadın.'), findsNothing);
-    expect(find.text('Henüz görüşme talebin yok.'), findsOneWidget);
+    expect(find.text('Henüz görüşmen yok.'), findsOneWidget);
 
     await tester.tap(find.text('PROFİL'));
     await advance(tester, frames: 10);
@@ -270,19 +338,13 @@ void main() {
     expect(find.text('Baykar'), findsOneWidget);
     expect(find.text('Nexora Robotik'), findsOneWidget);
 
-    // The company ticked one in-person hour; the venture ticked nothing and so
-    // stands open online.
-    //
-    // The venture's count is deliberately not asserted. It is the grid minus
-    // whatever the clock has already passed, and re-deriving that here would be
-    // reimplementing OrganizationSlot.isPast in the test — where it could agree
-    // with a bug. The count itself is covered by meeting_room_test; what this
-    // flow is about is that both rows appear and say which kind they are.
+    // The company ticked one in-person hour, so it says how many. The venture
+    // ticked nothing, which means "reach me whenever" — so it must NOT report a
+    // count: the whole grid standing in for an open door is an implementation
+    // detail, and a number there would promise a choice the request sheet does
+    // not offer.
     expect(find.text('1 görüşme açık  ·  Yüz yüze'), findsOneWidget);
-    expect(
-      find.textContaining('görüşme açık  ·  Online'),
-      findsOneWidget,
-    );
+    expect(find.text('Gün boyu müsait  ·  Online'), findsOneWidget);
   });
 
   testWidgets('a returning founder is restored with their card', (

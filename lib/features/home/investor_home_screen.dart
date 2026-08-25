@@ -6,10 +6,12 @@ import '../../core/theme/app_typography.dart';
 import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/reveal.dart';
 import '../../core/widgets/section_header.dart';
-import '../../data/organization_repository.dart';
 import '../../domain/card_match.dart';
+import '../../domain/match_insight.dart';
 import '../../domain/org_kind.dart';
 import '../../domain/user_role.dart';
+import '../matching/match_providers.dart';
+import '../matching/widgets/match_score_badge.dart';
 import '../organization/widgets/org_card_sheet.dart';
 import '../organization/widgets/org_row.dart';
 import '../profile/profile_controller.dart';
@@ -30,13 +32,23 @@ class InvestorHomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider);
     final criteria = MatchCriteria.of(profile);
-    final ranked = CardMatcher.rank(
-      ref.watch(organizationsProvider),
-      criteria,
-    );
 
-    final matched = ranked.where((match) => match.matched).toList();
-    final others = ranked.where((match) => !match.matched).toList();
+    final ranked = ref.watch(matchInsightsProvider);
+    final matched = ref.watch(strongMatchesProvider);
+    final others = ref.watch(otherMatchesProvider);
+    final engine = ref.watch(matchEngineStatusProvider);
+
+    // Cards this account kept from a scan or from the floor plan.
+    //
+    // Here rather than only on the meetings tab: keeping a card is the one
+    // thing an investor does with their thumb all day, and the watchlist over
+    // there empties itself the moment a request goes out — which made "where
+    // did the company I saved go" a fair question with no good answer. The
+    // ranked list below still contains them; a favourite is a shortcut to a
+    // card, not a category of company.
+    final favourites = ranked
+        .where((insight) => profile.likedOrgIds.contains(insight.organization.id))
+        .toList(growable: false);
 
     return Scaffold(
       body: SafeArea(
@@ -84,7 +96,19 @@ class InvestorHomeScreen extends ConsumerWidget {
                 style: AppTypography.bodyLarge,
               ),
             ),
-            const SizedBox(height: AppSpace.xxl),
+            const SizedBox(height: AppSpace.lg),
+            if (ranked.isNotEmpty)
+              Reveal(
+                delay: const Duration(milliseconds: 180),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: MatchEngineChip(
+                    status: engine,
+                    model: ref.watch(matchModelProvider),
+                  ),
+                ),
+              ),
+            SizedBox(height: ranked.isEmpty ? AppSpace.lg : AppSpace.xl),
 
             if (!criteria.isEmpty)
               Reveal(
@@ -97,6 +121,15 @@ class InvestorHomeScreen extends ConsumerWidget {
               const Reveal(
                 delay: Duration(milliseconds: 240),
                 child: _NoCards(),
+              ),
+
+            if (favourites.isNotEmpty)
+              ..._section(
+                context,
+                title: 'FAVORİLERİM',
+                count: '${favourites.length} kart',
+                matches: favourites,
+                delay: 220,
               ),
 
             if (matched.isNotEmpty)
@@ -126,7 +159,7 @@ class InvestorHomeScreen extends ConsumerWidget {
     BuildContext context, {
     required String title,
     required String count,
-    required List<CardMatch> matches,
+    required List<MatchInsight> matches,
     required int delay,
   }) => [
     Reveal(
@@ -147,12 +180,11 @@ class InvestorHomeScreen extends ConsumerWidget {
           delay: Duration(milliseconds: delay + 40 + i * 50),
           child: OrgRow(
             organization: matches[i].organization,
-            // The caption is the ranking's own explanation: the labels that
-            // actually scored, not a restatement of the card.
+            // The caption is the ranking's own explanation: the model's
+            // sentence when it scored this card, and the labels that actually
+            // earned points when it did not. Never a restatement of the card.
             caption: matches[i].caption,
-            trailing: matches[i].matched
-                ? _MatchBadge(match: matches[i])
-                : null,
+            trailing: MatchScoreBadge(insight: matches[i]),
             onTap: () => showOrgCardSheet(
               context,
               organizationId: matches[i].organization.id,
@@ -213,51 +245,6 @@ class _CriteriaCard extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// How strong the match is, as a compact mark on the row.
-///
-/// Deliberately not a percentage: the score is three weighted flags, and
-/// dressing it up as 83% would claim a precision it does not have.
-class _MatchBadge extends StatelessWidget {
-  const _MatchBadge({required this.match});
-
-  final CardMatch match;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    final total =
-        CardMatcher.sectorPoints +
-        CardMatcher.stagePoints +
-        CardMatcher.marketPoints;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        color: accent.withValues(alpha: 0.18),
-        border: Border.all(color: accent.withValues(alpha: 0.42)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            match.score == total
-                ? Icons.star_rounded
-                : Icons.trending_up_rounded,
-            size: 13,
-            color: accent,
-          ),
-          const SizedBox(width: 3),
-          Text(
-            '${match.reasons.length}/3',
-            style: AppTypography.eyebrow.copyWith(color: accent, fontSize: 9.5),
           ),
         ],
       ),

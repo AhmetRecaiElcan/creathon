@@ -60,21 +60,51 @@ class _MeetingRequestSheetState
     super.dispose();
   }
 
+  /// Whether this card is open all day because it never declared hours.
+  ///
+  /// A venture keeps no diary — the founder spends the fair walking the hall,
+  /// not sitting at a counter — so an empty availability list means "reach me
+  /// whenever" rather than "never", and [Organization.bookableAvailability]
+  /// turns it into the whole grid. That grid is an implementation detail of
+  /// *how* the request gets a time, not a question anyone should be asked: a
+  /// wall of half-hours, every one of them open, is a menu with one dish
+  /// printed fifty times.
+  ///
+  /// Tested the same way `bookableAvailability` decides it, not on the kind
+  /// alone: a founder who did declare specific hours meant them, and gets a
+  /// real grid like anyone else.
+  bool get _impliedAllDay =>
+      widget.organization.kind.isStartup &&
+      widget.organization.availability.isEmpty;
+
+  /// The soonest half-hour free on both sides, or null when there is none.
+  static OrganizationSlot? _firstOpen(List<OrganizationSlot> slots) {
+    for (final slot in slots) {
+      if (slot.available) return slot;
+    }
+    return null;
+  }
+
   Future<void> _send() async {
-    final slot = _chosen;
+    final slots = ref.read(organizationSlotsProvider(widget.organization.id));
+    // With no grid there is nothing for the sender to have picked, so the
+    // request takes the next opening. `_firstOpen` walks the same list the grid
+    // would have drawn, so the slot it lands on has already been checked
+    // against the clock and against the sender's own day.
+    final slot = _impliedAllDay ? _firstOpen(slots) : _chosen;
+
     if (slot == null) {
       // "Pick an hour" is only useful advice when there is one to pick. With
       // every offered hour struck through — the day has moved past all of them,
       // or they are all taken — it sends the visitor hunting for something that
       // is not on the screen, which is exactly how this reads as the app being
       // broken rather than the day being over.
-      final slots = ref.read(
-        organizationSlotsProvider(widget.organization.id),
-      );
       final open = slots.where((slot) => slot.available);
       setState(
         () => _error = open.isEmpty
-            ? slots.isEmpty
+            ? _impliedAllDay
+                  ? 'Bugün için boş yarım saat kalmadı.'
+                  : slots.isEmpty
                   ? 'Kurum henüz görüşme saati açmadı.'
                   : 'Kurumun açtığı saatlerin hepsi geçti veya doldu.'
             : 'Bir saat seç.',
@@ -83,6 +113,10 @@ class _MeetingRequestSheetState
     }
 
     setState(() {
+      // Kept so the confirmation can say which half-hour was actually asked
+      // for. The sender was not shown a grid, but they still have to be told
+      // what they just booked.
+      _chosen = slot;
       _busy = true;
       _error = null;
     });
@@ -133,7 +167,10 @@ class _MeetingRequestSheetState
   String _summaryFor(OrganizationSlot? slot, List<OrganizationSlot> slots) {
     if (slot == null) {
       if (slots.every((slot) => !slot.available)) {
-        return 'Bu saatlerin hepsi geçti veya doldu — bugün talep gönderilemez.';
+        // Worded without pointing at a grid when there is no grid to point at.
+        return _impliedAllDay
+            ? 'Bugün için boş yarım saat kalmadı.'
+            : 'Bu saatlerin hepsi geçti veya doldu — bugün talep gönderilemez.';
       }
       return 'Kurumun açtığı saatler ve görüşme türü yukarıda.';
     }
@@ -214,25 +251,31 @@ class _MeetingRequestSheetState
                     if (slots.isEmpty)
                       const _NoAvailability()
                     else ...[
-                      const SectionHeader('SAAT SEÇ'),
-                      const SizedBox(height: AppSpace.md),
-                      Wrap(
-                        spacing: AppSpace.sm,
-                        runSpacing: AppSpace.sm,
-                        children: [
-                          for (final slot in slots)
-                            _SlotChip(
-                              slot: slot,
-                              selected: _chosen?.label == slot.label,
-                              onTap: slot.available
-                                  ? () => setState(() {
-                                      _chosen = slot;
-                                      _error = null;
-                                    })
-                                  : null,
-                            ),
-                        ],
-                      ),
+                      // No grid for a card that is open all day: there is
+                      // nothing to choose between. One line says why instead.
+                      if (_impliedAllDay)
+                        _AllDayNote(accent: accent)
+                      else ...[
+                        const SectionHeader('SAAT SEÇ'),
+                        const SizedBox(height: AppSpace.md),
+                        Wrap(
+                          spacing: AppSpace.sm,
+                          runSpacing: AppSpace.sm,
+                          children: [
+                            for (final slot in slots)
+                              _SlotChip(
+                                slot: slot,
+                                selected: _chosen?.label == slot.label,
+                                onTap: slot.available
+                                    ? () => setState(() {
+                                        _chosen = slot;
+                                        _error = null;
+                                      })
+                                    : null,
+                              ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: AppSpace.lg),
                       GlassField(
                         label: 'NOT (İSTEĞE BAĞLI)',
@@ -246,7 +289,17 @@ class _MeetingRequestSheetState
                       SizedBox(
                         height: 34,
                         child: Text(
-                          _error ?? _summaryFor(_chosen, slots),
+                          // With no grid the summary carries the whole answer:
+                          // it is the only place the sender learns which
+                          // half-hour they are about to ask for.
+                          _error ??
+                              _summaryFor(
+                                _chosen ??
+                                    (_impliedAllDay
+                                        ? _firstOpen(slots)
+                                        : null),
+                                slots,
+                              ),
                           style: AppTypography.bodySmall.copyWith(
                             color: _error == null
                                 ? AppPalette.textSecondary
@@ -428,6 +481,34 @@ class _Sent extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Stands in for the grid on a card that is open all day.
+///
+/// Says why there is nothing to pick. Without it the sheet would be a note
+/// field and a send button with no explanation of when the meeting is — and
+/// "when" is the one thing a meeting request is made of. The half-hour itself is
+/// on the summary line below, so this states the rule and that states the value.
+class _AllDayNote extends StatelessWidget {
+  const _AllDayNote({required this.accent});
+
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(Icons.all_inclusive_rounded, size: 15, color: accent),
+      const SizedBox(width: AppSpace.sm),
+      Expanded(
+        child: Text(
+          'Bu girişim gün boyu görüşmeye açık. Talebin en yakın boş yarım '
+          'saate gider.',
+          style: AppTypography.bodySmall,
+        ),
+      ),
+    ],
+  );
 }
 
 class _NoAvailability extends StatelessWidget {

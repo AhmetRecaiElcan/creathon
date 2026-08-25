@@ -70,6 +70,124 @@ firebase deploy --only functions
 `FunctionsMeetingLinkRepository.region` ile aynı kalmalı, yoksa çağrı hiçbir şeyin
 dinlemediği bir adrese gider ve `not-found` döner.
 
+## Yapay zekâ ile eşleştirme
+
+Sıralamanın *neden*'ini üreten taraf. Uygulamadaki `CardMatcher` üç etikete bakıp
+ağırlıklı puan verir — hızlı, açıklanabilir, test edilebilir — ama kartın anlattığı
+işi hiç okumaz: "otonom sürüş için LIDAR üretiyoruz" ile "filo yönetimi SaaS" ikisi de
+`Mobilite` etiketi taşır ve deterministik puanlayıcı için aynı şeydir. `functions/index.js`
+içindeki **`aiMatch`** fonksiyonu tam olarak o boşluğu doldurur: kartın açıklamasını
+okuyup 0–100 arası bir puan ve puanı açıklayan tek cümlelik bir gerekçe üretir.
+
+Model: **`gemini-2.5-flash-lite`** — ailenin en ucuzu ve şema bağlı JSON döndüren en
+küçüğü. İş, kırk kısa kartı bir profile karşı okumak; muhakeme değil okuma-anlama, ve
+her ana sayfa açılışında çalışıyor.
+
+### Anahtar nereye gidiyor
+
+Uygulamanın içine **girmiyor**. Gemini proje geneli bir anahtarla kimlik doğrular, yani
+APK'ya gömülen anahtar herkesin proje kotasını harcayabileceği bir anahtardır — JaaS
+özel anahtarıyla birebir aynı gerekçe. Model çağrısı fonksiyonun içinde, istemcinin
+gördüğü tek şey sıralamanın kendisi:
+
+```
+firebase functions:secrets:set GEMINI_API_KEY
+firebase deploy --only functions
+```
+
+Anahtarı [Google AI Studio](https://aistudio.google.com/apikey)'dan alıyorsun. Bir
+sohbete, ekran görüntüsüne ya da depoya girmiş bir anahtar **yakılmış** sayılır: AI
+Studio'dan sil, yenisini üret, yalnızca yeni olanı Secret Manager'a yaz.
+
+### Fonksiyon neden argüman almıyor
+
+`aiMatch()` çağrısı boş gider. Profili ve kartları fonksiyon admin SDK ile kendisi
+okur, istemciden kabul etmez. İki sebep:
+
+* Çağıran, kendi uydurduğu bir yükle projenin model kotasını harcayamaz.
+* Çağıran, başkasının sıralamasını isteyemez — uid doğrulanmış token'dan gelir.
+
+### Aynı prompt iki kez ödenmiyor
+
+Fonksiyon, okuduğu profil + kart listesinin sha1'ini alıp `aiMatches/{uid}` altına
+sıralamayla birlikte yazar. Sonraki çağrıda imza aynıysa saklanan sıralama döner,
+model hiç çağrılmaz. İmza fonksiyonun *okuduğu* veriden üretilir, istemcinin
+söylediğinden değil — yani profil yazımı geç düşmüşse bir sonraki çağrı tazeliyor.
+
+Uygulama tarafında ikinci bir fren var: `aiRankingProvider`, kart listesini değil
+`matchSignatureProvider`'ın ürettiği metni izler. Kurum koleksiyonu canlı bir snapshot —
+üç stant öteki birinin telefon numarasını düzeltmesi her cihaza yeni bir liste iter — ve
+listeyi izleyen bir future her seferinde fuarı yeniden sıralardı.
+
+`aiMatches` koleksiyonu her istemciye kapalı, tarif ettiği hesaba bile. İçeriği sır
+değil (uygulama hepsini gösteriyor); doküman, aynı prompt'un iki kez ödenmesini
+engelleyen şeyin kendisi.
+
+### Model cevap vermezse
+
+Hiçbir şey kırılmaz. `AiMatchRepository.rank()` reddi boş bir sıralamayla yanıtlar,
+`MatchInsight.rank` birleştirecek bir hüküm bulamaz ve `CardMatcher`'ın ağırlıklı
+etiketleri devreye girer — puan yine yüzde olarak görünür, sadece rozetteki ikon
+kıvılcım yerine `%` olur ve ekrandaki çip **"ETİKET EŞLEŞMESİYLE SIRALANDI"** der.
+İnterneti olmayan bir fuarda sıralanmış bir salon kalır, ve uygulama kullanmadığı bir
+zekâyı kendine yazmaz.
+
+Görünen yerler: yatırımcının ana sayfası, girişimci/kurum ana sayfasındaki
+`EŞLEŞMELERİM`, ve kayıt akışının son adımındaki `EŞLEŞME ORANLARIM` kartı.
+
+## Görüşme brifingi
+
+Eşleştirme "kiminle görüşmeliyim" sorusunu cevaplıyor. `meetingBrief` fonksiyonu ondan
+sonra gelen soruyu cevaplıyor: **onaylanmış bir görüşmeye ne sorarak gireceğim.** Fuarda
+yarım saatlik bir slot, hazırlıksız girildiğinde iki tarafın birbirine kendini tanıttığı
+ve sonra bittiği bir slottur.
+
+Onaylanmış her görüşme kartında **Brifing al** düğmesi var — hem kurum/girişim
+tarafında hem talebi gönderen tarafta. Yüz yüze bir görüşmede kartın tek teklifi
+"Görüşmeyi bitir"di; artık henüz olmamış bir şeyi kapatmaktan başka bir şey de öneriyor.
+
+Dört alan üretiliyor, faydalı olma sırasıyla:
+
+| Alan | Ne | 
+|---|---|
+| `why` | Bu yarım saati almanın neden değerli olduğu — tek cümle, iki tarafın verisindeki somut bir örtüşmeye dayanıyor |
+| `questions` | Üç soru. Karşı tarafın kartında yazan işe özgü; "neler yapıyorsunuz" gibi bir soru prompt tarafından açıkça reddediliyor |
+| `theirAsk` | Karşı tarafın senden ne isteyeceği |
+| `prep` | Görüşmeye girmeden elinin altında olması gereken tek şey |
+
+Sıcaklık `0.55` — sıralamanın `0.2`'sinden yüksek. Sıfıra yakın bir sıcaklıkta üç soru,
+tek sorunun üç farklı yazımı olarak çıkıyor; buradaki bütün değer üçünün üç ayrı
+konuşma açması.
+
+### Kime ait
+
+**Görüşme başına değil, bakan kişi başına.** Aynı yarım saat her iki taraf için farklı
+bir brifing: birinden para isteniyor, öbürü çek yazıp yazmayacağına karar veriyor. Bu
+yüzden önbellek `meetingBriefs/{görüşmeId}__{uid}`.
+
+Yalnızca **onaylanmış** bir görüşme ve yalnızca **iki tarafı** için. Bu bir nezaket
+değil: brifing iki tarafın kartından ve profilinden derleniyor, yani içinde olmadığı bir
+görüşme için bunu çağırabilen biri, modeli aracı yaparak bir yabancının yatırım tezini
+okuyor olurdu. `meetingBriefs` koleksiyonu da bu yüzden her istemciye kapalı.
+
+### Model cevap vermezse
+
+Sıralamanın aksine burada arkada duran ikinci bir motor **yok** — etiketlerden brifing
+çıkmaz. O yüzden hata yutulmuyor: sayfa fonksiyonun kendi Türkçe gerekçesini gösteriyor
+("Brifing yalnızca onaylanmış görüşmeler için hazırlanır", "Yapay zekâ anahtarı tanımlı
+değil") ve bir **Tekrar dene** düğmesi koyuyor. Biri bir düğmeye bastı ve kelime
+bekliyor; sessizce boş bir sayfa göstermek bozuk uygulama olarak okunur.
+
+Sayfanın altında hangi modelin yazdığı ve *"Kontrol etmeden aktarma."* uyarısı duruyor.
+O soruları kafasında bir odaya girecek kişi, onları iki Firestore dokümanından bir
+modelin yazdığını bilmeyi hak ediyor.
+
+### Hesap silinince
+
+`adminDeleteAccount` artık `aiMatches/{uid}`'i ve silinen görüşmelerin brifinglerini —
+**iki tarafın da** brifingini — birlikte süpürüyor. Karşı tarafın uid'si sadece silinmek
+üzere olan görüşme kaydından bilinebiliyor, o yüzden kayıtlar silinmeden önce okunuyor.
+
 ## Koleksiyon şemaları
 
 ### `events/{id}` — ana sayfadaki program
@@ -551,3 +669,30 @@ Aynı eşik üç yerde birden: talep ızgarası (`organizationSlotsProvider`), k
 saat açma sayfası, ve `MeetingsController.request`'in bağımsız yeniden kontrolü.
 Üçü ayrışırsa ekranın sunduğu bir saati denetleyici reddeder — iki kuralın en
 kötüsü.
+
+## Girişim kartında saat seçimi yok
+
+Bir girişim kartı, kendi saatini **bildirmediği için** gün boyu açık:
+`Organization.bookableAvailability`, boş bir `availability` listesini
+`SlotGrid.openAllDay`'e çeviriyor. Girişimci defter tutmuyor — fuarı tezgâhın
+arkasında değil salonu gezerek geçiriyor — yani boş liste "hiç" değil, "ne zaman
+olursa" demek.
+
+O ızgara, talebin bir saate kavuşma **yöntemi**; kimseye sorulacak bir soru değil.
+Hepsi açık kırk sekiz çipten oluşan bir duvar, elli kere basılmış tek yemekli bir
+menü. O yüzden:
+
+- **Talep sayfasında ızgara gösterilmiyor**, tek satırlık bir açıklama var; not
+  alanı ve gönder düğmesi doğrudan geliyor.
+- **Talep en yakın boş yarım saate gidiyor** — ızgaranın çizeceği aynı listeden
+  seçiliyor, yani saate ve talep edenin kendi gününe karşı zaten kontrol edilmiş
+  bir dilim oluyor.
+- **Gönderilen saat yine söyleniyor**, özet satırında: ızgara gösterilmedi ama
+  yine de bir saate bağlanıldı.
+- **Seçici listedeki satır da sayı vermiyor**, "Gün boyu müsait" diyor. Orada
+  "32 görüşme açık" yazmak, bir uygulama detayı üzerinde aritmetik yapmak ve
+  talep sayfasının sunmadığı bir seçimi vaat etmekti.
+
+Koşul, `kind.isStartup` değil **`kind.isStartup && availability.isEmpty`** —
+`bookableAvailability`'nin kararını verdiği yerin aynısı. Saatini gerçekten
+bildiren bir girişimci onu kastetmiştir ve herkes gibi gerçek bir ızgara görür.

@@ -7,7 +7,9 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/glass_surface.dart';
 import '../../../core/util/clock.dart';
 import '../../../data/meeting_link_repository.dart';
+import '../../../data/meeting_repository.dart';
 import '../../../domain/meeting.dart';
+import '../../meetings/meeting_brief_sheet.dart';
 import '../../meetings/meeting_feedback_sheet.dart';
 import '../../meetings/meetings_controller.dart';
 
@@ -38,13 +40,11 @@ class MeetingCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final accent = Theme.of(context).colorScheme.primary;
 
-    // Whether it is finished is now a stored fact, not a reading of the clock.
-    // The clock still decides one thing — whether the meeting has *started*,
-    // and so whether there is anything to end yet — and that is read from the
-    // ticking provider so the button appears on its own rather than waiting for
-    // the user to leave the screen and come back.
+    // Both are stored facts now, with no clock in them: a meeting is finished
+    // because someone said so, and it can be finished because it was agreed.
+    // The clock is read only to word the confirm dialog.
     final awaitsFeedback = meeting.awaitsFeedback;
-    final canFinish = meeting.canFinishAt(nowOf(ref));
+    final canFinish = meeting.canFinish;
 
     final headline = asHost ? meeting.requesterName : meeting.organizationName;
     // The host is deciding who to give a slot to, so they get the fund and the
@@ -250,12 +250,34 @@ class MeetingCard extends ConsumerWidget {
                     // is calling, so the app cannot claim to be someone else.
                     _JoinAction(meeting: meeting, color: accent),
                   ],
+                  // Preparation, above the way out and below the way in.
+                  //
+                  // For a face-to-face meeting this is the only thing on the
+                  // card besides "end it", which is the point: a confirmed
+                  // booth meeting used to offer nothing but a way to close
+                  // something that had not happened yet.
+                  if (meeting.canBeBriefed) ...[
+                    SizedBox(
+                      height: meeting.isJoinable ? AppSpace.sm : AppSpace.md,
+                    ),
+                    _CardAction(
+                      label: 'Brifing al',
+                      icon: Icons.auto_awesome_rounded,
+                      color: accent,
+                      onTap: () =>
+                          showMeetingBriefSheet(context, meeting: meeting),
+                    ),
+                  ],
                   // Either side may end it, and ending it ends it for both:
                   // one person left holding a live join button for a meeting
                   // the other has walked out of is worse than either of them
                   // being asked to confirm. In person there is no link to
                   // follow, so this is the only thing on the card — which is
                   // exactly why it cannot be host-only.
+                  //
+                  // Sits directly under the join button and on the same
+                  // condition, so the way out is never missing where the way in
+                  // is offered.
                   if (canFinish) ...[
                     const SizedBox(height: AppSpace.sm),
                     _FinishAction(meeting: meeting),
@@ -324,14 +346,24 @@ class _FinishActionState extends ConsumerState<_FinishAction> {
   Future<void> _finish() async {
     if (_busy) return;
 
+    // The button is no longer gated on the start time, so a meeting that has
+    // not begun can be closed — which is right for two people who talked early,
+    // and wrong for a thumb that landed on the wrong card. Nothing stops the
+    // second case except saying so here, where it will be read.
+    final started = widget.meeting.hasStartedBy(nowOf(ref));
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppPalette.inkOverlay,
         title: const Text('Görüşmeyi bitir'),
         content: Text(
-          '${widget.meeting.organizationName} ile görüşme kapanacak ve iki '
-          'taraf da değerlendirme yapabilecek. Geri alınamaz.',
+          started
+              ? '${widget.meeting.organizationName} ile görüşme kapanacak ve '
+                    'iki taraf da değerlendirme yapabilecek. Geri alınamaz.'
+              : 'Bu görüşme henüz başlamadı '
+                    '(${widget.meeting.whenLabel}). Yine de kapatırsan iki '
+                    'taraf da değerlendirme yapabilecek ve geri alınamaz.',
           style: AppTypography.bodySmall,
         ),
         actions: [
@@ -351,9 +383,16 @@ class _FinishActionState extends ConsumerState<_FinishAction> {
     setState(() => _busy = true);
     try {
       await ref.read(meetingsControllerProvider).finish(widget.meeting);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() => _busy = false);
+      // The repository already says why in words worth reading — a refused
+      // write and a dropped connection send whoever is looking to two different
+      // places, and flattening them into "check your connection" sends both to
+      // the wrong one.
+      final message = error is MeetingFailure
+          ? error.message
+          : 'Görüşme bitirilemedi. Bağlantını kontrol edip tekrar dene.';
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
@@ -361,7 +400,7 @@ class _FinishActionState extends ConsumerState<_FinishAction> {
             behavior: SnackBarBehavior.floating,
             backgroundColor: AppPalette.inkOverlay,
             content: Text(
-              'Görüşme bitirilemedi. Bağlantını kontrol edip tekrar dene.',
+              message,
               style: AppTypography.bodySmall.copyWith(
                 color: AppPalette.textPrimary,
               ),

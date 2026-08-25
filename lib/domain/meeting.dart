@@ -127,13 +127,43 @@ class Meeting {
   /// Says nothing about whether the meeting is *finished*: see [isOver].
   bool hasEndedBy(DateTime now) => now.isAfter(end);
 
-  /// Whether the meeting can be ended now.
+  /// Whether the meeting can be ended.
   ///
-  /// From its start time on, and only while it is agreed. Before it starts
-  /// there is nothing to end — backing out of a meeting that has not happened
-  /// is cancelling, which is a different act with a different button.
-  bool canFinishAt(DateTime now) =>
-      status == MeetingStatus.confirmed && !now.isBefore(start);
+  /// Any confirmed meeting, with no clock in it — deliberately the same
+  /// condition [isJoinable] uses. It was gated on the start time at first, on
+  /// the reasoning that ending something unstarted is really cancelling. That
+  /// was wrong in practice: the join button has no such gate, so the app would
+  /// walk two people into a call three hours early and then offer them no way
+  /// out of it. **If the app lets you into the meeting, it has to let you close
+  /// it.**
+  ///
+  /// Ending early is not nonsense either. Two people who talked at the booth
+  /// instead, or met half an hour ahead of the slot, still need to close the
+  /// record and say how it went. Cancelling remains a separate act with its own
+  /// meaning — the meeting did not happen — and its own control.
+  ///
+  /// The confirm dialog is what guards a mis-tap, and it says so out loud when
+  /// the meeting has not started yet.
+  bool get canFinish => status == MeetingStatus.confirmed;
+
+  /// Whether the booked half-hour has begun. Only used to warn in the confirm
+  /// dialog; nothing is gated on it.
+  bool hasStartedBy(DateTime now) => !now.isBefore(start);
+
+  /// Whether there is anything worth briefing on.
+  ///
+  /// Agreed meetings only, and no clock — the same shape as [canFinish] and
+  /// [isJoinable], for the same reason: a card that offered preparation for a
+  /// request nobody had answered yet would be preparing for a meeting that may
+  /// never happen, and one that withdrew it at the start time would take the
+  /// notes away from someone reading them on the walk over.
+  ///
+  /// The condition is repeated rather than shared with [canFinish] because the
+  /// two are unrelated ideas that happen to agree today: ending a meeting is
+  /// about a meeting having been agreed, briefing is about there being two
+  /// cards to compare. Collapsing them would make a change to either one
+  /// silently change the other.
+  bool get canBeBriefed => status == MeetingStatus.confirmed;
 
   /// Whether the two parties are done with this meeting.
   ///

@@ -216,5 +216,32 @@ service cloud.firestore {
                            == resource.data.get('role', null));
       allow delete: if verified() && request.auth.uid == uid;
     }
+
+    // The model's cached ranking, one document per account.
+    //
+    // Closed to every client, including the account it describes. Not because
+    // the contents are secret — the app is shown all of it — but because the
+    // document is what stops the same prompt being paid for twice: a client
+    // that could write here could hand itself a ranking, and a client that
+    // could read here would be tempted to skip the function and never notice
+    // the cache had gone stale. The admin SDK bypasses these rules, which is
+    // how `aiMatch` gets in.
+    match /aiMatches/{uid} {
+      allow read, write: if false;
+    }
+
+    // The model's meeting briefings, one document per meeting *per side* —
+    // `{meetingId}__{uid}`, because the same half-hour is a different briefing
+    // for each party.
+    //
+    // Closed for a stronger reason than the ranking is: a briefing is written
+    // from *both* sides' cards and profiles, so a client that could read one
+    // could read a stranger's thesis with the model as the go-between. The
+    // function checks that the caller is one of the meeting's two parties
+    // before it writes, and that check is only worth anything if the document
+    // itself is unreachable.
+    match /meetingBriefs/{briefId} {
+      allow read, write: if false;
+    }
   }
 }

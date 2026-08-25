@@ -2,6 +2,8 @@ import 'package:creathon/core/widgets/accent_button.dart';
 import 'package:creathon/domain/availability_slot.dart';
 import 'package:creathon/domain/brand_color.dart';
 import 'package:creathon/domain/investor_kind.dart';
+import 'package:creathon/domain/match_insight.dart';
+import 'package:creathon/domain/meeting.dart';
 import 'package:creathon/domain/org_kind.dart';
 import 'package:creathon/domain/organization.dart';
 import 'package:creathon/domain/user_profile.dart';
@@ -242,9 +244,16 @@ void main() {
       reason: 'once as the stated criteria, once as what the top row matched',
     );
     expect(
-      find.text('3/3'),
+      find.text('100'),
       findsOneWidget,
-      reason: 'the badge says how many of the three criteria the card hit',
+      reason: 'the badge is a percentage now: Nexora hits all three criteria, '
+          'so it scores the deterministic maximum',
+    );
+    expect(
+      find.text('ETİKET EŞLEŞMESİYLE SIRALANDI'),
+      findsOneWidget,
+      reason: 'no model answered in this test, and the chip says so rather '
+          'than claiming a ranking the AI did not produce',
     );
     expect(find.text('DİĞERLERİ'), findsOneWidget);
     expect(find.text('Zeta Uzay'), findsOneWidget);
@@ -266,6 +275,91 @@ void main() {
     expect(find.text('SAHNE SUNUMLARI'), findsOneWidget);
     expect(find.text('Baykar'), findsWidgets);
     expect(find.text('Yapay Zekâ ile Üretim'), findsOneWidget);
+  });
+
+  testWidgets('the model outranks the tags and says why', (tester) async {
+    final auth = FakeAuthRepository();
+    // The deterministic scorer would put Nexora first: it hits all three
+    // criteria and Zeta hits none. The model has read both cards and disagrees,
+    // which is the entire reason it is here.
+    final ai = FakeAiMatchRepository(const [
+      AiMatch(
+        orgId: 'startup-1',
+        score: 92,
+        headline: 'İtki sistemleri',
+        reason: 'Küp uydu itkisi, portföyündeki savunma yatırımlarının '
+            'doğrudan tedarik zinciri.',
+      ),
+      AiMatch(
+        orgId: 'startup-2',
+        score: 38,
+        headline: 'Etiket uyumu',
+        reason: 'Alan etiketi tutuyor ama anlattığı iş yatırım tezinin '
+            'dışında.',
+      ),
+    ]);
+
+    await pumpApp(
+      tester,
+      auth: auth,
+      aiMatches: ai,
+      organizations: FakeOrganizationRepository([
+        const Organization(
+          id: 'startup-1',
+          kind: OrgKind.startup,
+          name: 'Zeta Uzay',
+          email: 'iletisim@zeta.com',
+          description: 'Küp uydu itki sistemleri.',
+          sector: 'Havacılık & Uzay',
+          stage: 'Pre-seed',
+        ),
+        const Organization(
+          id: 'startup-2',
+          kind: OrgKind.startup,
+          name: 'Nexora Robotik',
+          email: 'iletisim@nexora.com',
+          description: 'Otonom seyir yazılımı.',
+          sector: 'Yapay Zekâ',
+          stage: 'Seed',
+          market: 'Ulusal',
+        ),
+      ]),
+      meetings: FakeMeetingRepository(),
+    );
+    await completeInvestorOnboarding(
+      tester,
+      auth: auth,
+      sectors: const ['Yapay Zekâ'],
+      stages: const ['Seed'],
+      markets: const ['Ulusal'],
+    );
+
+    // The chip names the engine, so a ranking nobody can reproduce by eye at
+    // least says what produced it.
+    expect(
+      find.text('YAPAY ZEKÂ SIRALADI  ·  GEMINI 2.5'),
+      findsWidgets,
+    );
+
+    // Zeta is the one above the floor now, and its caption is the model's
+    // sentence rather than a restatement of its tags.
+    expect(find.text('SENİN İÇİN'), findsOneWidget);
+    expect(find.text('92'), findsWidgets);
+    expect(
+      find.textContaining('portföyündeki savunma yatırımlarının'),
+      findsWidgets,
+    );
+
+    // Nexora keeps its three matching tags and still drops below the fold: the
+    // model's score is what orders the list once there is one.
+    expect(find.text('DİĞERLERİ'), findsOneWidget);
+    await scrollTo(tester, find.text('Nexora Robotik'));
+    expect(find.text('38'), findsOneWidget);
+
+    // One call, not one per rebuild. The onboarding flow alone rebuilds the
+    // tree dozens of times, and each of those is a paid generation if the
+    // future is keyed on anything that moves.
+    expect(ai.calls, 1);
   });
 
   testWidgets('a company with no open hours cannot be asked', (tester) async {
@@ -410,6 +504,118 @@ void main() {
     await tester.tap(find.text('Toplantı talep et'));
     await advance(tester, frames: 10);
     expect(find.text('SAAT SEÇ'), findsOneWidget);
+  });
+
+  testWidgets('an investor can end a confirmed meeting with a venture', (
+    tester,
+  ) async {
+    // submitIdentity's default address, and the uid FakeAuthRepository mints
+    // for it — the meeting has to belong to the account that signs in.
+    const email = 'elif@example.com';
+    final investorId = 'uid-${email.hashCode}';
+    final start = testNow.subtract(const Duration(minutes: 20));
+
+    final meetings = FakeMeetingRepository([
+      Meeting(
+        id: Meeting.idFor(organizationId: 'org-1', start: start),
+        organizationId: 'org-1',
+        organizationName: 'Nexora Robotik',
+        requesterId: investorId,
+        requesterName: 'Elif Tunca',
+        start: start,
+        end: start.add(const Duration(minutes: 30)),
+        location: 'Online görüşme',
+        status: MeetingStatus.confirmed,
+        mode: MeetingMode.online,
+        roomName: 'oda-1',
+      ),
+    ]);
+
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      organizations: FakeOrganizationRepository([exhibitor()]),
+      meetings: meetings,
+    );
+    await completeInvestorOnboarding(tester, auth: auth);
+
+    await tester.tap(find.text('GÖRÜŞMELER'));
+    await advance(tester, frames: 12);
+
+    // The half-hour is running, so both the call and the way out of it are on
+    // the card — and the rating is not, until somebody ends it.
+    expect(find.text('Görüşmeye katıl'), findsOneWidget);
+    expect(find.text('Görüşmeyi bitir'), findsOneWidget);
+    expect(find.text('Değerlendir'), findsNothing);
+
+    await tester.tap(find.text('Görüşmeyi bitir'));
+    await advance(tester, frames: 10);
+    await tester.tap(find.widgetWithText(TextButton, 'Bitir'));
+    await advance(tester, frames: 20);
+
+    expect(meetings.meetings.single.status, MeetingStatus.completed);
+    expect(find.text('Değerlendir'), findsOneWidget);
+    expect(find.text('Görüşmeye katıl'), findsNothing);
+  });
+
+  testWidgets('a venture is asked without ever showing a grid', (
+    tester,
+  ) async {
+    final meetings = FakeMeetingRepository();
+
+    final auth = FakeAuthRepository();
+    await pumpApp(
+      tester,
+      auth: auth,
+      // A venture that declared no hours: open all day, by omission rather than
+      // by choice.
+      organizations: FakeOrganizationRepository([
+        Organization(
+          id: 'org-1',
+          kind: OrgKind.startup,
+          name: 'Nexora Robotik',
+          email: 'bilgi@nexora.com',
+          address: '',
+          description: 'Otonom seyir yazılımı.',
+          brand: BrandColor.emerald,
+          stage: 'Seed',
+          sector: 'Robotik & Otonom Sistemler',
+        ),
+      ]),
+      meetings: meetings,
+    );
+    await completeInvestorOnboarding(tester, auth: auth);
+
+    showOrgCardSheet(
+      tester.element(find.byType(Scaffold).first),
+      organizationId: 'org-1',
+    );
+    await advance(tester, frames: 10);
+    await tester.tap(find.text('Toplantı talep et'));
+    await advance(tester, frames: 10);
+
+    // No hour picker at all. Every half-hour of the day being open is how the
+    // request gets a time, not a question worth asking — a wall of chips with
+    // every one of them available is a menu with one dish printed fifty times.
+    expect(find.text('SAAT SEÇ'), findsNothing);
+    expect(
+      find.textContaining('Bu girişim gün boyu görüşmeye açık'),
+      findsOneWidget,
+    );
+
+    // Straight to sending, and the sender is still told which half-hour they
+    // got: they were shown no grid, but they did commit to a time.
+    await tester.tap(find.widgetWithText(AccentButton, 'Talebi gönder'));
+    await advance(tester, frames: 40);
+
+    expect(meetings.meetings, hasLength(1));
+    final sent = meetings.meetings.single;
+    expect(sent.organizationId, 'org-1');
+    expect(sent.mode, MeetingMode.online);
+    // The soonest opening, not the top of the grid: testNow is 08:00, and the
+    // 08:00 half-hour is still running, so that is the first one free.
+    expect(sent.start, DateTime(testNow.year, testNow.month, testNow.day, 8));
   });
 
   testWidgets('a half-hour already under way can still be asked for', (

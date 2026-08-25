@@ -170,7 +170,15 @@ class _PickerRow extends ConsumerWidget {
         for (final slot in slots.where((slot) => slot.available)) slot.mode,
       };
       final kinds = modes.map((mode) => mode.label).join(' / ');
-      caption = '$open görüşme açık  ·  $kinds';
+      // A venture that declared no hours has none to count. Reporting "32
+      // görüşme açık" for it was arithmetic on an implementation detail — the
+      // whole grid stood in for "reach me whenever" — and it promised a choice
+      // the request sheet then does not offer.
+      final allDay =
+          organization.kind.isStartup && organization.availability.isEmpty;
+      caption = allDay
+          ? 'Gün boyu müsait  ·  $kinds'
+          : '$open görüşme açık  ·  $kinds';
       trailing = const Icon(
         Icons.chevron_right_rounded,
         size: 22,
