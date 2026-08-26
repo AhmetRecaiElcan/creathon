@@ -14,7 +14,9 @@ import '../../core/widgets/reveal.dart';
 import '../../core/widgets/section_header.dart';
 import '../../core/widgets/select_chip.dart';
 import '../../data/auth_repository.dart';
+import '../../data/organization_repository.dart';
 import '../../domain/investor_kind.dart';
+import '../../domain/organization.dart';
 import '../../domain/profile_wallpaper.dart';
 import '../../domain/taxonomy.dart';
 import '../../domain/user_profile.dart';
@@ -22,6 +24,8 @@ import '../../domain/user_role.dart';
 import '../agenda/agenda_providers.dart';
 import '../home/home_providers.dart';
 import '../meetings/meetings_controller.dart';
+import '../organization/widgets/org_card_sheet.dart';
+import '../organization/widgets/org_row.dart';
 import 'account_deletion.dart';
 import 'profile_controller.dart';
 
@@ -65,6 +69,11 @@ class ProfileScreen extends ConsumerWidget {
     final controller = ref.read(profileProvider.notifier);
     final savedCount = ref.watch(savedSessionsProvider).length;
     final recommendedCount = ref.watch(recommendedSessionsProvider).length;
+    final favouriteIds = profile.likedOrgIds;
+    final favouriteOrgs = favouriteIds
+        .map((id) => ref.watch(organizationByIdProvider(id)))
+        .whereType<Organization>()
+        .toList(growable: false);
 
     Future<void> leave() async {
       await ref.read(authRepositoryProvider).signOut();
@@ -148,6 +157,10 @@ class ProfileScreen extends ConsumerWidget {
                           value: profile.sectors.length,
                           label: 'ALANIM',
                         ),
+                        _Counter(
+                          value: favouriteOrgs.length,
+                          label: 'FAVORİ',
+                        ),
                         _Counter(value: recommendedCount, label: 'ÖNERİ'),
                       ],
                     ),
@@ -181,6 +194,58 @@ class ProfileScreen extends ConsumerWidget {
                         controller.setInvestorProfile(investorKind: kind),
                   ),
                 ],
+
+                const SizedBox(height: AppSpace.xl),
+                Reveal(
+                  delay: const Duration(milliseconds: 170),
+                  child: SectionHeader(
+                    'FAVORİLERİM',
+                    trailing: Text(
+                      '${favouriteOrgs.length} kart',
+                      style: AppTypography.bodySmall.copyWith(fontSize: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpace.md),
+                if (favouriteOrgs.isEmpty)
+                  Reveal(
+                    delay: const Duration(milliseconds: 175),
+                    child: GlassSurface(
+                      padding: const EdgeInsets.all(AppSpace.lg),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.qr_code_scanner_rounded,
+                            size: 20,
+                            color: AppPalette.textTertiary,
+                          ),
+                          const SizedBox(width: AppSpace.md),
+                          Expanded(
+                            child: Text(
+                              'Henüz favori kartın yok. '
+                              'QR okutarak beğendiğin kartları buraya ekle.',
+                              style: AppTypography.bodySmall,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  for (var i = 0; i < favouriteOrgs.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpace.md),
+                      child: Reveal(
+                        delay: Duration(milliseconds: 180 + i * 50),
+                        child: OrgRow(
+                          organization: favouriteOrgs[i],
+                          onTap: () => showOrgCardSheet(
+                            context,
+                            organizationId: favouriteOrgs[i].id,
+                          ),
+                        ),
+                      ),
+                    ),
 
                 const SizedBox(height: AppSpace.xl),
                 Reveal(

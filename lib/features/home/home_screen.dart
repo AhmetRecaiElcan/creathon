@@ -56,23 +56,6 @@ class HomeScreen extends ConsumerWidget {
         : null;
     final ownPanel = ownOrg?.panelLabel == null ? null : ownOrg;
 
-    // Every published card scored against this account, so the two sections
-    // below can both show a percentage. Read once: the ranking is one list, and
-    // asking for it twice would rank the hall twice per build.
-    final ranked = publishesCard
-        ? ref.watch(matchInsightsProvider)
-        : const <MatchInsight>[];
-
-    // Cards this account scanned and kept. A visitor keeps them on the agenda;
-    // the two card-publishing roles have nowhere else to look, so they get them
-    // here — a company saving a founder it might want to hire needs the list as
-    // much as anyone.
-    final favourites = ranked
-        .where(
-          (insight) => profile.likedOrgIds.contains(insight.organization.id),
-        )
-        .toList(growable: false);
-
     // Who this account should be talking to. The founder's side of what the
     // investor's home has always been: the exhibitor looking for a pilot and
     // the venture looking for a partner are asking the same question, and until
@@ -168,15 +151,6 @@ class HomeScreen extends ConsumerWidget {
             // decline, meant answering in one place while looking at the other —
             // and it pushed the programme far enough down that the home screen
             // stopped being about the event.
-
-            if (favourites.isNotEmpty)
-              ..._orgSection(
-                context,
-                title: 'FAVORİLERİM',
-                count: '${favourites.length} kart',
-                items: favourites,
-                delay: 200,
-              ),
 
             if (matches.isNotEmpty) ...[
               Reveal(
@@ -306,58 +280,6 @@ class HomeScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  /// A titled list of cards, tapping through to the same sheet a scan opens.
-  ///
-  /// Returned as loose widgets rather than as one column so the sections stay
-  /// part of the page's single scrollable — a nested list here would scroll
-  /// inside the feed, which on a phone reads as a bug.
-  static List<Widget> _orgSection(
-    BuildContext context, {
-    required String title,
-    required String count,
-    required List<MatchInsight> items,
-    required int delay,
-  }) => [
-    Reveal(
-      delay: Duration(milliseconds: delay),
-      child: SectionHeader(
-        title,
-        trailing: Text(
-          count,
-          style: AppTypography.bodySmall.copyWith(fontSize: 12),
-        ),
-      ),
-    ),
-    const SizedBox(height: AppSpace.lg),
-    for (var i = 0; i < items.length; i++)
-      Padding(
-        padding: const EdgeInsets.only(bottom: AppSpace.md),
-        child: Reveal(
-          delay: Duration(milliseconds: delay + 40 + i * 55),
-          child: OrgRow(
-            organization: items[i].organization,
-            // The ranking's own words when there are any — a kept card is
-            // still a card this account was scored against, and "why did I
-            // keep this" is worth more here than a restatement of its tags.
-            caption: items[i].caption ?? _detailOf(items[i].organization),
-            trailing: MatchScoreBadge(insight: items[i]),
-            onTap: () => showOrgCardSheet(
-              context,
-              organizationId: items[i].organization.id,
-            ),
-          ),
-        ),
-      ),
-    const SizedBox(height: AppSpace.xl),
-  ];
-
-  /// Stage first for a venture, because it is what decides whether the rest is
-  /// worth reading; a company has no stage and keeps its sector.
-  static String? _detailOf(Organization organization) {
-    final parts = [?organization.stageLabel, ?organization.sectorLabel];
-    return parts.isEmpty ? null : parts.join('  ·  ');
   }
 
   static String _greeting(DateTime now, UserProfile profile) {

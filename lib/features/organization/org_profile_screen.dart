@@ -8,11 +8,15 @@ import '../../core/widgets/glass_surface.dart';
 import '../../core/widgets/reveal.dart';
 import '../../core/widgets/section_header.dart';
 import '../../data/auth_repository.dart';
+import '../../data/organization_repository.dart';
+import '../../domain/organization.dart';
 import '../home/widgets/availability_row.dart';
 import '../profile/account_deletion.dart';
 import '../profile/profile_controller.dart';
 import 'availability_sheet.dart';
 import 'organization_controller.dart';
+import 'widgets/org_card_sheet.dart';
+import 'widgets/org_row.dart';
 
 /// The exhibitor's account settings: the hours they keep, the booth they hold,
 /// and the two ways out.
@@ -30,6 +34,11 @@ class OrgProfileScreen extends ConsumerWidget {
 
     final controller = ref.read(organizationProvider.notifier);
     final availability = organization.availability;
+    final profile = ref.watch(profileProvider);
+    final favouriteOrgs = profile.likedOrgIds
+        .map((id) => ref.watch(organizationByIdProvider(id)))
+        .whereType<Organization>()
+        .toList(growable: false);
 
     Future<void> leave() async {
       await ref.read(authRepositoryProvider).signOut();
@@ -159,6 +168,59 @@ class OrgProfileScreen extends ConsumerWidget {
                 ],
               ),
             ],
+
+            const SizedBox(height: AppSpace.xl),
+            Reveal(
+              delay: const Duration(milliseconds: 200),
+              child: SectionHeader(
+                'FAVORİLERİM',
+                trailing: Text(
+                  '${favouriteOrgs.length} kart',
+                  style: AppTypography.bodySmall.copyWith(fontSize: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpace.md),
+            if (favouriteOrgs.isEmpty)
+              Reveal(
+                delay: const Duration(milliseconds: 205),
+                child: GlassSurface(
+                  padding: const EdgeInsets.all(AppSpace.lg),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.qr_code_scanner_rounded,
+                        size: 20,
+                        color: AppPalette.textTertiary,
+                      ),
+                      const SizedBox(width: AppSpace.md),
+                      Expanded(
+                        child: Text(
+                          'Henüz favori kartın yok. '
+                          'Fuar alanından veya QR okutarak '
+                          'beğendiğin kartları buraya ekle.',
+                          style: AppTypography.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              for (var i = 0; i < favouriteOrgs.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpace.md),
+                  child: Reveal(
+                    delay: Duration(milliseconds: 210 + i * 50),
+                    child: OrgRow(
+                      organization: favouriteOrgs[i],
+                      onTap: () => showOrgCardSheet(
+                        context,
+                        organizationId: favouriteOrgs[i].id,
+                      ),
+                    ),
+                  ),
+                ),
 
             const SizedBox(height: AppSpace.xl),
             Reveal(

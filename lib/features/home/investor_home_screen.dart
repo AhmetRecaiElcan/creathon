@@ -38,18 +38,6 @@ class InvestorHomeScreen extends ConsumerWidget {
     final others = ref.watch(otherMatchesProvider);
     final engine = ref.watch(matchEngineStatusProvider);
 
-    // Cards this account kept from a scan or from the floor plan.
-    //
-    // Here rather than only on the meetings tab: keeping a card is the one
-    // thing an investor does with their thumb all day, and the watchlist over
-    // there empties itself the moment a request goes out — which made "where
-    // did the company I saved go" a fair question with no good answer. The
-    // ranked list below still contains them; a favourite is a shortcut to a
-    // card, not a category of company.
-    final favourites = ranked
-        .where((insight) => profile.likedOrgIds.contains(insight.organization.id))
-        .toList(growable: false);
-
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -121,15 +109,6 @@ class InvestorHomeScreen extends ConsumerWidget {
               const Reveal(
                 delay: Duration(milliseconds: 240),
                 child: _NoCards(),
-              ),
-
-            if (favourites.isNotEmpty)
-              ..._section(
-                context,
-                title: 'FAVORİLERİM',
-                count: '${favourites.length} kart',
-                matches: favourites,
-                delay: 220,
               ),
 
             if (matched.isNotEmpty)
